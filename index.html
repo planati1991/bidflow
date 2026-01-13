@@ -22,6 +22,9 @@
     const SUPABASE_URL = 'https://rhaiseimlsiznflazwzl.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoYWlzZWltbHNpem5mbGF6d3psIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3Mjc3NDMsImV4cCI6MjA4MzMwMzc0M30.osca4MvFRFDH96nqaAank8tZsUHP-sL8O6aLf5sym8Q';
     const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Claude API
+    const CLAUDE_API_KEY = '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';
 
     // Constants
     const HOURS_PER_DAY = 9;
@@ -42,6 +45,9 @@
       const [error, setError] = useState(null);
       const [contacts, setContacts] = useState([]);
       const [projects, setProjects] = useState([]);
+      const [pricingGrid, setPricingGrid] = useState([]);
+      const [extracting, setExtracting] = useState(false);
+      const [extractionStatus, setExtractionStatus] = useState('');
 
       // Load data on mount
       useEffect(() => {
@@ -54,6 +60,10 @@
           // Load contacts
           const { data: contactsData } = await db.from('contacts').select('*').order('company');
           setContacts(contactsData || []);
+          
+          // Load pricing grid
+          const { data: pricingData } = await db.from('pricing_grid').select('*');
+          setPricingGrid(pricingData || []);
 
           // Load projects
           const { data: projectsData } = await db.from('projects').select('*, contacts(*)').order('bid_date');
@@ -197,6 +207,173 @@
           ...p, alternatives: p.alternatives.filter(i => i.id !== itemId)
         }));
         await db.from('alternatives').delete().eq('id', itemId);
+      };
+
+      // Match plant to pricing grid using fuzzy matching
+      const matchPlantToGrid = (botanical, spec) => {
+        if (!pricingGrid.length) return null;
+        
+        const normalizeStr = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+        const searchBotanical = normalizeStr(botanical);
+        const searchSpec = normalizeStr(spec);
+        
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        for (const item of pricingGrid) {
+          const itemBotanical = normalizeStr(item.botanical_name || item.botanical || '');
+          const itemSpec = normalizeStr(item.spec || item.size || '');
+          
+          // Check botanical name match
+          let score = 0;
+          if (itemBotanical && searchBotanical) {
+            if (itemBotanical === searchBotanical) score += 100;
+            else if (itemBotanical.includes(searchBotanical) || searchBotanical.includes(itemBotanical)) score += 70;
+            else {
+              const words1 = searchBotanical.split(' ');
+              const words2 = itemBotanical.split(' ');
+              const matchedWords = words1.filter(w => words2.some(w2 => w2.includes(w) || w.includes(w2)));
+              score += (matchedWords.length / Math.max(words1.length, words2.length)) * 60;
+            }
+          }
+          
+          // Spec match bonus
+          if (itemSpec && searchSpec && (itemSpec.includes(searchSpec) || searchSpec.includes(itemSpec))) {
+            score += 20;
+          }
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = { ...item, matchScore: score };
+          }
+        }
+        
+        return bestScore >= 50 ? bestMatch : null;
+      };
+
+      // Extract plants from PDF using Claude
+      const extractFromPDF = async (file) => {
+        if (!selectedProjectId) return;
+        
+        setExtracting(true);
+        setExtractionStatus('Reading PDF...');
+        
+        try {
+          // Convert PDF to base64
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          
+          setExtractionStatus('Sending to Claude for extraction...');
+          
+          // Call Claude API
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': CLAUDE_API_KEY,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 4096,
+              messages: [{
+                role: 'user',
+                content: [
+                  {
+                    type: 'document',
+                    source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+                  },
+                  {
+                    type: 'text',
+                    text: `Extract all plants from this landscape/planting schedule. Return ONLY a JSON array with no other text. Each plant should have:
+- code: the plant code/symbol (e.g. "QV", "SAP")
+- botanical: botanical/scientific name (e.g. "Quercus virginiana")
+- common: common name (e.g. "Live Oak")
+- spec: size specification (e.g. "4" Cal, 14' HT" or "3 Gal")
+- qty: quantity as a number
+- category: one of "tree", "palm", "shrub", "grass", "groundcover"
+
+Example format:
+[{"code":"QV","botanical":"Quercus virginiana","common":"Live Oak","spec":"4\\" Cal, 14' HT","qty":5,"category":"tree"}]`
+                  }
+                ]
+              }]
+            })
+          });
+          
+          if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`API error: ${err}`);
+          }
+          
+          const data = await response.json();
+          const text = data.content[0].text;
+          
+          setExtractionStatus('Parsing extracted data...');
+          
+          // Parse JSON from response
+          let plants;
+          try {
+            // Try to find JSON array in response
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              plants = JSON.parse(jsonMatch[0]);
+            } else {
+              throw new Error('No JSON array found');
+            }
+          } catch (e) {
+            console.error('Parse error:', text);
+            throw new Error('Failed to parse plant data from response');
+          }
+          
+          setExtractionStatus(`Found ${plants.length} plants. Matching to pricing grid...`);
+          
+          // Match each plant and create line items
+          let matched = 0;
+          for (const plant of plants) {
+            const match = matchPlantToGrid(plant.botanical, plant.spec);
+            
+            const lineItem = {
+              project_id: selectedProjectId,
+              code: plant.code || '',
+              botanical: plant.botanical || '',
+              common: plant.common || '',
+              spec: plant.spec || '',
+              category: plant.category || 'shrub',
+              qty: parseInt(plant.qty) || 0,
+              unit_cost: match ? (parseFloat(match.unit_cost || match.price || match.cost) || 0) : 0,
+              crew: DEFAULT_CREW,
+              rate: DEFAULT_RATE,
+              days: 0,
+              transport: 0,
+              matched: !!match,
+              match_score: match?.matchScore || 0
+            };
+            
+            if (match) matched++;
+            
+            await db.from('line_items').insert(lineItem);
+          }
+          
+          setExtractionStatus(`Done! ${matched}/${plants.length} plants matched to pricing grid.`);
+          
+          // Reload project data
+          await loadAllData();
+          
+          // Switch to proposal tab
+          setProjectTab('proposal');
+          
+        } catch (err) {
+          console.error('Extraction error:', err);
+          setExtractionStatus(`Error: ${err.message}`);
+        } finally {
+          setExtracting(false);
+        }
       };
 
       const createProject = async (formData) => {
@@ -575,9 +752,49 @@
             )}
 
             {projectTab === 'documents' && (
-              <div style={{ padding: 24, color: colors.gray }}>
-                <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 16 }}>📁</div>
-                <div style={{ textAlign: 'center' }}>Document upload coming soon</div>
+              <div style={{ padding: 24 }}>
+                <div style={{ backgroundColor: 'white', borderRadius: 8, border: '2px dashed #E5E7EB', padding: 40, textAlign: 'center', marginBottom: 24 }}>
+                  {extracting ? (
+                    <div>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
+                      <div style={{ fontWeight: 500, marginBottom: 8 }}>Extracting...</div>
+                      <div style={{ color: colors.gray, fontSize: 14 }}>{extractionStatus}</div>
+                    </div>
+                  ) : (
+                    <label style={{ cursor: 'pointer', display: 'block' }}>
+                      <input 
+                        type="file" 
+                        accept=".pdf" 
+                        style={{ display: 'none' }} 
+                        onChange={(e) => {
+                          if (e.target.files[0]) extractFromPDF(e.target.files[0]);
+                        }} 
+                      />
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+                      <div style={{ fontWeight: 500, marginBottom: 8 }}>Upload Plant Schedule PDF</div>
+                      <div style={{ color: colors.gray, fontSize: 14 }}>Click to select or drag & drop</div>
+                      <div style={{ marginTop: 16 }}>
+                        <span style={{ padding: '10px 20px', borderRadius: 6, backgroundColor: colors.primary, color: 'white', fontSize: 14 }}>Choose PDF</span>
+                      </div>
+                    </label>
+                  )}
+                </div>
+                
+                {extractionStatus && !extracting && (
+                  <div style={{ backgroundColor: extractionStatus.includes('Error') ? '#FEF2F2' : '#F0FDF4', borderRadius: 8, padding: 16, marginBottom: 24 }}>
+                    <div style={{ color: extractionStatus.includes('Error') ? colors.danger : colors.success, fontWeight: 500 }}>{extractionStatus}</div>
+                  </div>
+                )}
+                
+                <div style={{ backgroundColor: '#F8FAFC', borderRadius: 8, padding: 16 }}>
+                  <div style={{ fontWeight: 500, marginBottom: 8 }}>How it works:</div>
+                  <div style={{ fontSize: 14, color: colors.gray, lineHeight: 1.6 }}>
+                    1. Upload a plant schedule PDF<br/>
+                    2. Claude AI extracts plant names, specs, and quantities<br/>
+                    3. Plants are matched against your {pricingGrid.length.toLocaleString()} pricing grid items<br/>
+                    4. Line items appear in the Proposal tab with prices filled in
+                  </div>
+                </div>
               </div>
             )}
           </div>
