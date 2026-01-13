@@ -602,7 +602,7 @@
             </thead>
             <tbody>
               {contacts.map(c => (
-                <tr key={c.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                <tr key={c.id} onClick={() => setSelectedContactId(c.id)} style={{ borderBottom: '1px solid #E5E7EB', cursor: 'pointer' }}>
                   <td style={{ padding: 12, fontWeight: 500 }}>{c.company}</td>
                   <td style={{ padding: 12 }}>{c.contact_name}</td>
                   <td style={{ padding: 12 }}>{c.email}</td>
@@ -680,6 +680,89 @@
         );
       };
 
+      const EditContactModal = () => {
+        const contact = contacts.find(c => c.id === selectedContactId);
+        const [form, setForm] = useState({ 
+          company: contact?.company || '', 
+          contactName: contact?.contact_name || '', 
+          email: contact?.email || '', 
+          phone: contact?.phone || '',
+          address: contact?.address || '',
+          notes: contact?.notes || ''
+        });
+        
+        const updateContact = async () => {
+          setSaving(true);
+          try {
+            await db.from('contacts').update({
+              company: form.company,
+              contact_name: form.contactName,
+              email: form.email,
+              phone: form.phone,
+              address: form.address,
+              notes: form.notes
+            }).eq('id', selectedContactId);
+            await loadAllData();
+            setSelectedContactId(null);
+          } finally {
+            setSaving(false);
+          }
+        };
+
+        const deleteContact = async () => {
+          if (!confirm('Delete this contact? This cannot be undone.')) return;
+          setSaving(true);
+          try {
+            await db.from('contacts').delete().eq('id', selectedContactId);
+            await loadAllData();
+            setSelectedContactId(null);
+          } finally {
+            setSaving(false);
+          }
+        };
+
+        if (!contact) return null;
+        
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setSelectedContactId(null)}>
+            <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 24, width: 450 }} onClick={e => e.stopPropagation()}>
+              <h2 style={{ marginBottom: 20 }}>Edit Contact</h2>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Company *</label>
+                <input type="text" value={form.company} onChange={e => setForm({...form, company: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Contact Name</label>
+                <input type="text" value={form.contactName} onChange={e => setForm({...form, contactName: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Email</label>
+                  <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Phone</label>
+                  <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Address</label>
+                <input type="text" value={form.address} onChange={e => setForm({...form, address: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Notes</label>
+                <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} rows={3} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6, resize: 'vertical' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button onClick={deleteContact} style={{ padding: 12, borderRadius: 6, border: 'none', backgroundColor: '#FEE2E2', color: colors.danger, cursor: 'pointer' }}>🗑️ Delete</button>
+                <button onClick={() => setSelectedContactId(null)} style={{ flex: 1, padding: 12, borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={updateContact} disabled={!form.company || saving} style={{ flex: 1, padding: 12, borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer', opacity: !form.company ? 0.5 : 1 }}>{saving ? 'Saving...' : 'Save'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
       // Main render
       return (
         <div style={{ display: 'flex', height: '100vh' }}>
@@ -709,6 +792,7 @@
 
           {showNewProjectModal && <NewProjectModal />}
           {showNewContactModal && <NewContactModal />}
+          {selectedContactId && currentPage === 'contacts' && <EditContactModal />}
         </div>
       );
     };
