@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BidFlow CRM</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // Supabase setup
+    const SUPABASE_URL = 'https://rhaiseimlsiznflazwzl.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoYWlzZWltbHNpem5mbGF6d3psIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3Mjc3NDMsImV4cCI6MjA4MzMwMzc0M30.osca4MvFRFDH96nqaAank8tZsUHP-sL8O6aLf5sym8Q';
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Constants
+    const HOURS_PER_DAY = 9;
+    const DEFAULT_CREW = 4;
+    const DEFAULT_RATE = 28;
+
+    const BidFlowCRM = () => {
+      // State
+      const [currentPage, setCurrentPage] = useState('dashboard');
+      const [selectedProjectId, setSelectedProjectId] = useState(null);
+      const [selectedContactId, setSelectedContactId] = useState(null);
+      const [projectTab, setProjectTab] = useState('proposal');
+      const [proposalView, setProposalView] = useState('internal');
+      const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+      const [showNewContactModal, setShowNewContactModal] = useState(false);
+      const [loading, setLoading] = useState(true);
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState(null);
+      const [contacts, setContacts] = useState([]);
+      const [projects, setProjects] = useState([]);
+
+      // Load data on mount
+      useEffect(() => {
+        loadAllData();
+      }, []);
+
+      const loadAllData = async () => {
+        setLoading(true);
+        try {
+          // Load contacts
+          const { data: contactsData } = await db.from('contacts').select('*').order('company');
+          setContacts(contactsData || []);
+
+          // Load projects
+          const { data: projectsData } = await db.from('projects').select('*, contacts(*)').order('bid_date');
+          
+          // Load items for each project
+          const projectsWithItems = await Promise.all((projectsData || []).map(async (project) => {
+            const [li, mi, alt] = await Promise.all([
+              db.from('line_items').select('*').eq('project_id', project.id).order('sort_order'),
+              db.from('misc_items').select('*').eq('project_id', project.id).order('sort_order'),
+              db.from('alternatives').select('*').eq('project_id', project.id).order('sort_order')
+            ]);
+            return {
+              ...project,
+              gc: project.contacts?.company || project.gc_contact_name || '',
+              gcContact: project.contacts?.contact_name || '',
+              lineItems: (li.data || []).map(i => ({
+                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+              })),
+              miscItems: (mi.data || []).map(i => ({
+                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+              })),
+              alternatives: (alt.data || []).map(i => ({
+                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+              }))
+            };
+          }));
+          setProjects(projectsWithItems);
+        } catch (err) {
+          console.error('Load error:', err);
+          setError('Failed to load data');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Calculate item
+      const calculateItem = (item) => {
+        const crew = item.crew || DEFAULT_CREW;
+        const rate = item.rate || DEFAULT_RATE;
+        const materialCost = (item.unitCost || 0) * (item.qty || 0);
+        const laborCost = crew * rate * HOURS_PER_DAY * (item.days || 0);
+        const totalCost = materialCost + laborCost + (item.transport || 0);
+        const revenue = totalCost * 1.35;
+        const grossProfit = revenue - totalCost;
+        const gpPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+        return { ...item, materialCost, laborCost, totalCost, revenue, grossProfit, gpPercent, clientUnitPrice: (item.unitCost || 0) * 1.45 };
+      };
+
+      // Update functions
+      const updateLineItem = async (itemId, field, value) => {
+        const dbFieldMap = { unitCost: 'unit_cost', matchScore: 'match_score', sortOrder: 'sort_order' };
+        const dbField = dbFieldMap[field] || field;
+        const isText = ['botanical', 'common', 'spec', 'code', 'category'].includes(field);
+        const val = isText ? value : (parseFloat(value) || 0);
+
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, lineItems: p.lineItems.map(i => i.id !== itemId ? i : { ...i, [field]: val })
+        }));
+        await db.from('line_items').update({ [dbField]: val }).eq('id', itemId);
+      };
+
+      const addLineItem = async (category) => {
+        const { data } = await db.from('line_items').insert({
+          project_id: selectedProjectId, code: '', botanical: 'New Plant', common: '', spec: '',
+          category, qty: 0, unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+        }).select().single();
+        if (data) {
+          setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+            ...p, lineItems: [...p.lineItems, { ...data, unitCost: 0, rate: DEFAULT_RATE }]
+          }));
+        }
+      };
+
+      const deleteLineItem = async (itemId) => {
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, lineItems: p.lineItems.filter(i => i.id !== itemId)
+        }));
+        await db.from('line_items').delete().eq('id', itemId);
+      };
+
+      const updateMiscItem = async (itemId, field, value) => {
+        const dbFieldMap = { unitCost: 'unit_cost' };
+        const dbField = dbFieldMap[field] || field;
+        const isText = ['name', 'spec', 'unit'].includes(field);
+        const val = isText ? value : (parseFloat(value) || 0);
+
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, miscItems: p.miscItems.map(i => i.id !== itemId ? i : { ...i, [field]: val })
+        }));
+        await db.from('misc_items').update({ [dbField]: val }).eq('id', itemId);
+      };
+
+      const addMiscItem = async () => {
+        const { data } = await db.from('misc_items').insert({
+          project_id: selectedProjectId, name: 'New Item', spec: '', qty: 0, unit: 'EA',
+          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+        }).select().single();
+        if (data) {
+          setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+            ...p, miscItems: [...p.miscItems, { ...data, unitCost: 0, rate: DEFAULT_RATE }]
+          }));
+        }
+      };
+
+      const deleteMiscItem = async (itemId) => {
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, miscItems: p.miscItems.filter(i => i.id !== itemId)
+        }));
+        await db.from('misc_items').delete().eq('id', itemId);
+      };
+
+      const updateAltItem = async (itemId, field, value) => {
+        const dbFieldMap = { unitCost: 'unit_cost' };
+        const dbField = dbFieldMap[field] || field;
+        const isText = ['name', 'spec', 'unit'].includes(field);
+        const val = isText ? value : (parseFloat(value) || 0);
+
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, alternatives: p.alternatives.map(i => i.id !== itemId ? i : { ...i, [field]: val })
+        }));
+        await db.from('alternatives').update({ [dbField]: val }).eq('id', itemId);
+      };
+
+      const addAltItem = async () => {
+        const { data } = await db.from('alternatives').insert({
+          project_id: selectedProjectId, name: 'New Alternative', spec: 'Quoted Upon Request', qty: 0, unit: 'EA',
+          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+        }).select().single();
+        if (data) {
+          setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+            ...p, alternatives: [...p.alternatives, { ...data, unitCost: 0, rate: DEFAULT_RATE }]
+          }));
+        }
+      };
+
+      const deleteAltItem = async (itemId) => {
+        setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+          ...p, alternatives: p.alternatives.filter(i => i.id !== itemId)
+        }));
+        await db.from('alternatives').delete().eq('id', itemId);
+      };
+
+      const createProject = async (formData) => {
+        setSaving(true);
+        try {
+          await db.from('projects').insert({
+            name: formData.name, location: formData.location, contact_id: formData.contactId || null,
+            gc_contact_name: formData.gcContact, gc_email: formData.gcEmail, status: 'new', bid_date: formData.bidDate
+          });
+          await loadAllData();
+          setShowNewProjectModal(false);
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const createContact = async (formData) => {
+        setSaving(true);
+        try {
+          await db.from('contacts').insert({
+            company: formData.company, contact_name: formData.contactName,
+            email: formData.email, phone: formData.phone
+          });
+          await loadAllData();
+          setShowNewContactModal(false);
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const selectedProject = projects.find(p => p.id === selectedProjectId);
+
+      // Proposal calculations
+      const proposalData = useMemo(() => {
+        if (!selectedProject?.lineItems?.length) return null;
+        const items = selectedProject.lineItems.map(calculateItem);
+        const categories = {
+          'TREES & PALMS': items.filter(i => ['tree', 'palm'].includes(i.category)),
+          'SHRUBS': items.filter(i => i.category === 'shrub'),
+          'GRASSES': items.filter(i => i.category === 'grass'),
+          'GROUNDCOVER': items.filter(i => i.category === 'groundcover'),
+        };
+        const plantTotals = items.reduce((a, i) => ({
+          revenue: a.revenue + i.revenue, totalCost: a.totalCost + i.totalCost, grossProfit: a.grossProfit + i.grossProfit
+        }), { revenue: 0, totalCost: 0, grossProfit: 0 });
+
+        const miscItems = (selectedProject.miscItems || []).map(calculateItem);
+        const miscTotals = miscItems.reduce((a, i) => ({ revenue: a.revenue + i.revenue, totalCost: a.totalCost + i.totalCost, grossProfit: a.grossProfit + i.grossProfit }), { revenue: 0, totalCost: 0, grossProfit: 0 });
+
+        const altItems = (selectedProject.alternatives || []).map(calculateItem);
+
+        const totals = {
+          revenue: plantTotals.revenue + miscTotals.revenue,
+          totalCost: plantTotals.totalCost + miscTotals.totalCost,
+          grossProfit: plantTotals.grossProfit + miscTotals.grossProfit,
+          matched: items.filter(i => i.matched).length,
+          unmatched: items.filter(i => !i.matched).length,
+          itemCount: items.length
+        };
+        totals.gpPercent = totals.revenue > 0 ? (totals.grossProfit / totals.revenue) * 100 : 0;
+
+        return { items, categories, plantTotals, miscItems, miscTotals, altItems, totals };
+      }, [selectedProject]);
+
+      // Styles
+      const colors = { primary: '#2563EB', success: '#16A34A', warning: '#D97706', danger: '#DC2626', gray: '#6B7280', border: '#E5E7EB' };
+      const formatCurrency = (v) => v == null || isNaN(v) ? '-' : '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const formatPercent = (v) => v == null || isNaN(v) ? '-' : v.toFixed(1) + '%';
+      const getGPColor = (gp) => gp >= 30 ? colors.success : gp >= 20 ? colors.warning : colors.danger;
+      const getStatusBadge = (status) => {
+        const map = { new: ['#DBEAFE', '#1D4ED8', 'New'], extracting: ['#FEF3C7', '#B45309', 'Extracting'], ready: ['#D1FAE5', '#059669', 'Ready'], sent: ['#E9D5FF', '#7C3AED', 'Sent'], won: ['#D1FAE5', '#059669', 'Won'], lost: ['#FEE2E2', '#B91C1C', 'Lost'] };
+        const [bg, color, label] = map[status] || map.new;
+        return <span style={{ padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: bg, color }}>{label}</span>;
+      };
+
+      // Loading screen
+      if (loading) {
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 16 }}>
+            <div style={{ fontSize: 48 }}>🌿</div>
+            <div style={{ fontSize: 20, fontWeight: 600 }}>Loading BidFlow...</div>
+          </div>
+        );
+      }
+
+      // Dashboard
+      const renderDashboard = () => {
+        const activeProjects = projects.filter(p => ['new', 'extracting', 'ready', 'sent'].includes(p.status));
+        const wonProjects = projects.filter(p => p.status === 'won');
+        const totalPipeline = activeProjects.reduce((s, p) => s + (p.value || 0), 0);
+
+        return (
+          <div style={{ padding: 24 }}>
+            {error && <div style={{ backgroundColor: '#FEF3C7', color: '#B45309', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>⚠️ {error}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+              <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                <div style={{ fontSize: 32, fontWeight: 700 }}>{formatCurrency(totalPipeline)}</div>
+                <div style={{ color: colors.gray, marginTop: 4 }}>Pipeline Value</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                <div style={{ fontSize: 32, fontWeight: 700, color: colors.primary }}>{activeProjects.length}</div>
+                <div style={{ color: colors.gray, marginTop: 4 }}>Active Bids</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                <div style={{ fontSize: 32, fontWeight: 700, color: colors.success }}>{wonProjects.length}</div>
+                <div style={{ color: colors.gray, marginTop: 4 }}>Won</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: 20, borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                <div style={{ fontSize: 32, fontWeight: 700 }}>{projects.length}</div>
+                <div style={{ color: colors.gray, marginTop: 4 }}>Total Projects</div>
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: 'white', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #E5E7EB', fontWeight: 600 }}>📅 Recent Projects</div>
+              {projects.slice(0, 5).map(proj => (
+                <div key={proj.id} onClick={() => { setSelectedProjectId(proj.id); setCurrentPage('projects'); }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', cursor: 'pointer', borderBottom: '1px solid #F3F4F6' }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{proj.name}</div>
+                    <div style={{ fontSize: 13, color: colors.gray }}>{proj.gc}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ fontSize: 13, color: colors.gray }}>{proj.bid_date}</div>
+                    {getStatusBadge(proj.status)}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setShowNewProjectModal(true)} style={{ padding: '10px 20px', borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer', fontWeight: 500 }}>+ New Project</button>
+              <button onClick={() => setShowNewContactModal(true)} style={{ padding: '10px 20px', borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer' }}>+ Add Contact</button>
+            </div>
+          </div>
+        );
+      };
+
+      // Projects List
+      const renderProjectsList = () => (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2>Projects ({projects.length})</h2>
+            <button onClick={() => setShowNewProjectModal(true)} style={{ padding: '10px 20px', borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer' }}>+ New Project</button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#F8FAFC' }}>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray, textTransform: 'uppercase' }}>Project</th>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray, textTransform: 'uppercase' }}>GC</th>
+                <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray, textTransform: 'uppercase' }}>Bid Date</th>
+                <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray, textTransform: 'uppercase' }}>Status</th>
+                <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray, textTransform: 'uppercase' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map(proj => (
+                <tr key={proj.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                  <td style={{ padding: 12 }}><div style={{ fontWeight: 500 }}>{proj.name}</div><div style={{ fontSize: 12, color: colors.gray }}>{proj.location}</div></td>
+                  <td style={{ padding: 12 }}>{proj.gc}</td>
+                  <td style={{ padding: 12, textAlign: 'center' }}>{proj.bid_date}</td>
+                  <td style={{ padding: 12, textAlign: 'center' }}>{getStatusBadge(proj.status)}</td>
+                  <td style={{ padding: 12, textAlign: 'center' }}>
+                    <button onClick={() => setSelectedProjectId(proj.id)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', fontSize: 13 }}>View →</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+      // Project Detail
+      const renderProjectDetail = () => {
+        if (!selectedProject) return null;
+        const isInternal = proposalView === 'internal';
+
+        return (
+          <div>
+            <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <button onClick={() => setSelectedProjectId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20 }}>←</button>
+                <div>
+                  <h1 style={{ fontSize: 20, fontWeight: 600 }}>{selectedProject.name}</h1>
+                  <div style={{ fontSize: 13, color: colors.gray }}>{selectedProject.gc} • {selectedProject.location} • Due {selectedProject.bid_date}</div>
+                </div>
+              </div>
+              {getStatusBadge(selectedProject.status)}
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #E5E7EB', backgroundColor: 'white', padding: '0 24px' }}>
+              {['proposal', 'documents'].map(tab => (
+                <button key={tab} onClick={() => setProjectTab(tab)}
+                  style={{ padding: '14px 20px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 14,
+                    color: projectTab === tab ? colors.primary : colors.gray,
+                    borderBottom: `2px solid ${projectTab === tab ? colors.primary : 'transparent'}`, marginBottom: -1 }}>
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {projectTab === 'proposal' && proposalData && (
+              <>
+                {/* View Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #E5E7EB' }}>
+                  <button onClick={() => setProposalView('internal')} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: isInternal ? colors.primary : 'white', color: isInternal ? 'white' : colors.gray, cursor: 'pointer', fontSize: 13 }}>⚙️ Internal</button>
+                  <button onClick={() => setProposalView('client')} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: !isInternal ? colors.primary : 'white', color: !isInternal ? 'white' : colors.gray, cursor: 'pointer', fontSize: 13 }}>📄 Client</button>
+                  <span style={{ marginLeft: 'auto', fontSize: 13, color: colors.gray }}>{isInternal ? 'Edit costs to hit margin target' : 'Client preview'}</span>
+                </div>
+
+                {/* Stats */}
+                <div style={{ display: 'flex', gap: 24, padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #E5E7EB' }}>
+                  <div><div style={{ fontSize: 24, fontWeight: 700 }}>{proposalData.totals.itemCount}</div><div style={{ fontSize: 12, color: colors.gray }}>Items</div></div>
+                  <div><div style={{ fontSize: 24, fontWeight: 700, color: colors.success }}>{proposalData.totals.matched}</div><div style={{ fontSize: 12, color: colors.gray }}>Matched</div></div>
+                  {proposalData.totals.unmatched > 0 && <div><div style={{ fontSize: 24, fontWeight: 700, color: colors.danger }}>{proposalData.totals.unmatched}</div><div style={{ fontSize: 12, color: colors.gray }}>Need Price</div></div>}
+                  <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                    <div style={{ fontSize: 24, fontWeight: 700 }}>{formatCurrency(proposalData.totals.revenue)}</div>
+                    <div style={{ fontSize: 12, color: colors.gray }}>Bid Total</div>
+                  </div>
+                  {isInternal && <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: getGPColor(proposalData.totals.gpPercent) }}>{formatPercent(proposalData.totals.gpPercent)}</div>
+                    <div style={{ fontSize: 12, color: colors.gray }}>GP%</div>
+                  </div>}
+                </div>
+
+                {/* Table */}
+                <div style={{ padding: 24 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#F8FAFC' }}>
+                        <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>ITEM</th>
+                        <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>SPEC</th>
+                        <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>QTY</th>
+                        <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>UNIT $</th>
+                        <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>TOTAL</th>
+                        {isInternal && <>
+                          <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>DAYS</th>
+                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>LABOR</th>
+                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>COST</th>
+                          <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>GP%</th>
+                          <th style={{ padding: 12, width: 40 }}></th>
+                        </>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(proposalData.categories).map(([cat, catItems]) => {
+                        if (!catItems.length) return null;
+                        const catRevenue = catItems.reduce((s, i) => s + i.revenue, 0);
+                        const catProfit = catItems.reduce((s, i) => s + i.grossProfit, 0);
+                        const catGP = catRevenue > 0 ? (catProfit / catRevenue) * 100 : 0;
+
+                        return (
+                          <React.Fragment key={cat}>
+                            <tr style={{ backgroundColor: '#F1F5F9' }}>
+                              <td colSpan={isInternal ? 8 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
+                              {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                <button onClick={() => addLineItem(cat.toLowerCase().includes('tree') ? 'tree' : cat.toLowerCase().replace('s', ''))} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button>
+                              </td>}
+                            </tr>
+                            {catItems.map(item => (
+                              <tr key={item.id} style={{ borderBottom: '1px solid #E5E7EB', backgroundColor: !item.matched ? '#FEF2F2' : 'white' }}>
+                                <td style={{ padding: 12 }}>
+                                  {isInternal ? (
+                                    <div>
+                                      <input type="text" value={item.botanical} onChange={e => updateLineItem(item.id, 'botanical', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, fontStyle: 'italic', marginBottom: 4 }} />
+                                      <input type="text" value={item.common || ''} onChange={e => updateLineItem(item.id, 'common', e.target.value)} placeholder="Common name" style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 12, color: colors.gray }} />
+                                    </div>
+                                  ) : (
+                                    <div><div style={{ fontWeight: 500, fontStyle: 'italic' }}>{item.botanical}</div><div style={{ fontSize: 12, color: colors.gray }}>{item.common}</div></div>
+                                  )}
+                                </td>
+                                <td style={{ padding: 12, fontSize: 13, color: colors.gray }}>{isInternal ? <input type="text" value={item.spec || ''} onChange={e => updateLineItem(item.id, 'spec', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} /> : item.spec}</td>
+                                <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <input type="number" value={item.qty} onChange={e => updateLineItem(item.id, 'qty', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> : item.qty}</td>
+                                <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateLineItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : formatCurrency(item.clientUnitPrice)}</td>
+                                <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                                {isInternal && <>
+                                  <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateLineItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
+                                  <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
+                                  <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
+                                  <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
+                                  <td style={{ padding: 12 }}><button onClick={() => deleteLineItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
+                                </>}
+                              </tr>
+                            ))}
+                            <tr style={{ backgroundColor: '#F8FAFC', fontWeight: 600 }}>
+                              <td colSpan={4} style={{ padding: 12 }}>Subtotal {cat}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catRevenue)}</td>
+                              {isInternal && <><td colSpan={3}></td><td style={{ padding: 12, textAlign: 'center', color: getGPColor(catGP) }}>{formatPercent(catGP)}</td><td></td></>}
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Misc Items */}
+                      {(proposalData.miscItems.length > 0 || isInternal) && <>
+                        <tr style={{ backgroundColor: '#F1F5F9' }}>
+                          <td colSpan={isInternal ? 8 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
+                          {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}><button onClick={addMiscItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
+                        </tr>
+                        {proposalData.miscItems.map(item => (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                            <td style={{ padding: 12 }}>{isInternal ? <input type="text" value={item.name} onChange={e => updateMiscItem(item.id, 'name', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} /> : <span style={{ fontWeight: 500 }}>{item.name}</span>}</td>
+                            <td style={{ padding: 12, fontSize: 13, color: colors.gray }}>{item.spec}</td>
+                            <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <><input type="number" value={item.qty} onChange={e => updateMiscItem(item.id, 'qty', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> <input type="text" value={item.unit} onChange={e => updateMiscItem(item.id, 'unit', e.target.value)} style={{ width: 40, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></> : `${item.qty} ${item.unit}`}</td>
+                            <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateMiscItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : formatCurrency(item.clientUnitPrice)}</td>
+                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                            {isInternal && <>
+                              <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateMiscItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
+                              <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
+                              <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
+                              <td style={{ padding: 12 }}><button onClick={() => deleteMiscItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
+                            </>}
+                          </tr>
+                        ))}
+                      </>}
+
+                      {/* Grand Total */}
+                      <tr style={{ backgroundColor: '#1E293B', color: 'white', fontWeight: 700 }}>
+                        <td colSpan={4} style={{ padding: 12, color: 'white' }}>TOTAL</td>
+                        <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.revenue)}</td>
+                        {isInternal && <><td colSpan={3}></td><td style={{ padding: 12, textAlign: 'center', color: proposalData.totals.gpPercent >= 30 ? '#4ADE80' : '#FCD34D' }}>{formatPercent(proposalData.totals.gpPercent)}</td><td></td></>}
+                      </tr>
+
+                      {/* Alternatives */}
+                      {(proposalData.altItems.length > 0 || isInternal) && <>
+                        <tr><td colSpan={isInternal ? 10 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
+                        <tr style={{ backgroundColor: '#FEF3C7' }}>
+                          <td colSpan={isInternal ? 8 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
+                          {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}><button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
+                        </tr>
+                        {proposalData.altItems.map(item => (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #E5E7EB', backgroundColor: item.qty === 0 ? '#FAFAFA' : 'white' }}>
+                            <td style={{ padding: 12 }}>{isInternal ? <input type="text" value={item.name} onChange={e => updateAltItem(item.id, 'name', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} /> : <span style={{ fontWeight: 500 }}>{item.name}</span>}</td>
+                            <td style={{ padding: 12, fontSize: 13, color: colors.gray, fontStyle: 'italic' }}>{item.spec}</td>
+                            <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <><input type="number" value={item.qty} onChange={e => updateAltItem(item.id, 'qty', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> <input type="text" value={item.unit} onChange={e => updateAltItem(item.id, 'unit', e.target.value)} style={{ width: 40, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></> : (item.qty > 0 ? `${item.qty} ${item.unit}` : '-')}</td>
+                            <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateAltItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : (item.qty > 0 ? formatCurrency(item.clientUnitPrice) : '-')}</td>
+                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{item.qty > 0 ? formatCurrency(item.revenue) : '-'}</td>
+                            {isInternal && <>
+                              <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateAltItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? formatCurrency(item.laborCost) : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
+                              <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
+                            </>}
+                          </tr>
+                        ))}
+                      </>}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer */}
+                <div style={{ position: 'sticky', bottom: 0, backgroundColor: 'white', borderTop: '1px solid #E5E7EB', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: colors.gray }}>{isInternal ? `Profit: ${formatCurrency(proposalData.totals.grossProfit)}` : 'Ready to send'}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700 }}>{formatCurrency(proposalData.totals.revenue)}</div>
+                      {isInternal && <div style={{ fontSize: 13, color: getGPColor(proposalData.totals.gpPercent) }}>{formatPercent(proposalData.totals.gpPercent)} GP</div>}
+                    </div>
+                    <button style={{ padding: '10px 20px', borderRadius: 6, border: 'none', backgroundColor: colors.success, color: 'white', cursor: 'pointer', fontWeight: 500 }}>📄 Export PDF</button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {projectTab === 'proposal' && !proposalData && (
+              <div style={{ padding: 40, textAlign: 'center', color: colors.gray }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+                <div style={{ fontWeight: 500 }}>No line items yet</div>
+                <div style={{ fontSize: 13 }}>Upload a PDF to extract plants</div>
+              </div>
+            )}
+
+            {projectTab === 'documents' && (
+              <div style={{ padding: 24, color: colors.gray }}>
+                <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 16 }}>📁</div>
+                <div style={{ textAlign: 'center' }}>Document upload coming soon</div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // Contacts
+      const renderContacts = () => (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2>Contacts ({contacts.length})</h2>
+            <button onClick={() => setShowNewContactModal(true)} style={{ padding: '10px 20px', borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer' }}>+ Add Contact</button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#F8FAFC' }}>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>COMPANY</th>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>CONTACT</th>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>EMAIL</th>
+                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: colors.gray }}>PHONE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contacts.map(c => (
+                <tr key={c.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                  <td style={{ padding: 12, fontWeight: 500 }}>{c.company}</td>
+                  <td style={{ padding: 12 }}>{c.contact_name}</td>
+                  <td style={{ padding: 12 }}>{c.email}</td>
+                  <td style={{ padding: 12 }}>{c.phone}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
+      // Modals
+      const NewProjectModal = () => {
+        const [form, setForm] = useState({ name: '', location: '', contactId: '', bidDate: '' });
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowNewProjectModal(false)}>
+            <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 24, width: 400 }} onClick={e => e.stopPropagation()}>
+              <h2 style={{ marginBottom: 20 }}>New Project</h2>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Project Name *</label>
+                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} placeholder="e.g. Costco Business Center" />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Location</label>
+                <input type="text" value={form.location} onChange={e => setForm({...form, location: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} placeholder="e.g. Miami, FL" />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>General Contractor</label>
+                <select value={form.contactId} onChange={e => setForm({...form, contactId: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }}>
+                  <option value="">Select contact...</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Bid Date</label>
+                <input type="date" value={form.bidDate} onChange={e => setForm({...form, bidDate: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button onClick={() => setShowNewProjectModal(false)} style={{ flex: 1, padding: 12, borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => createProject(form)} disabled={!form.name || saving} style={{ flex: 1, padding: 12, borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer', opacity: !form.name ? 0.5 : 1 }}>{saving ? 'Creating...' : 'Create'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const NewContactModal = () => {
+        const [form, setForm] = useState({ company: '', contactName: '', email: '', phone: '' });
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowNewContactModal(false)}>
+            <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 24, width: 400 }} onClick={e => e.stopPropagation()}>
+              <h2 style={{ marginBottom: 20 }}>Add Contact</h2>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Company *</label>
+                <input type="text" value={form.company} onChange={e => setForm({...form, company: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Contact Name</label>
+                <input type="text" value={form.contactName} onChange={e => setForm({...form, contactName: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Email</label>
+                <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>Phone</label>
+                <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} style={{ width: '100%', padding: 10, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button onClick={() => setShowNewContactModal(false)} style={{ flex: 1, padding: 12, borderRadius: 6, border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => createContact(form)} disabled={!form.company || saving} style={{ flex: 1, padding: 12, borderRadius: 6, border: 'none', backgroundColor: colors.primary, color: 'white', cursor: 'pointer', opacity: !form.company ? 0.5 : 1 }}>{saving ? 'Adding...' : 'Add'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // Main render
+      return (
+        <div style={{ display: 'flex', height: '100vh' }}>
+          {/* Sidebar */}
+          <div style={{ width: 220, backgroundColor: '#1E293B', color: 'white', padding: '20px 0', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '0 20px 20px', fontSize: 20, fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>🌿 BidFlow</div>
+            <nav style={{ padding: '20px 0', flex: 1 }}>
+              {[['📊', 'Dashboard', 'dashboard'], ['📁', 'Projects', 'projects'], ['👥', 'Contacts', 'contacts']].map(([icon, label, page]) => (
+                <button key={page} onClick={() => { setCurrentPage(page); setSelectedProjectId(null); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', color: currentPage === page ? 'white' : 'rgba(255,255,255,0.7)',
+                    backgroundColor: currentPage === page ? 'rgba(255,255,255,0.1)' : 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', fontSize: 14 }}>
+                  <span>{icon}</span><span>{label}</span>
+                </button>
+              ))}
+            </nav>
+            <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+              {saving ? '💾 Saving...' : '✓ Connected'}
+            </div>
+          </div>
+
+          {/* Main */}
+          <div style={{ flex: 1, backgroundColor: '#F8FAFC', overflow: 'auto' }}>
+            {currentPage === 'dashboard' && renderDashboard()}
+            {currentPage === 'projects' && (selectedProjectId ? renderProjectDetail() : renderProjectsList())}
+            {currentPage === 'contacts' && renderContacts()}
+          </div>
+
+          {showNewProjectModal && <NewProjectModal />}
+          {showNewContactModal && <NewContactModal />}
+        </div>
+      );
+    };
+
+    ReactDOM.render(<BidFlowCRM />, document.getElementById('root'));
+  </script>
+</body>
+</html>
