@@ -354,7 +354,7 @@
             </thead>
             <tbody>
               {projects.map(proj => (
-                <tr key={proj.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                <tr key={proj.id} onClick={() => setSelectedProjectId(proj.id)} style={{ borderBottom: '1px solid #E5E7EB', cursor: 'pointer' }}>
                   <td style={{ padding: 12 }}><div style={{ fontWeight: 500 }}>{proj.name}</div><div style={{ fontSize: 12, color: colors.gray }}>{proj.location}</div></td>
                   <td style={{ padding: 12 }}>{proj.gc}</td>
                   <td style={{ padding: 12, textAlign: 'center' }}>{proj.bid_date}</td>
