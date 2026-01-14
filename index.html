@@ -58,8 +58,11 @@
           const { data: contactsData } = await db.from('contacts').select('*').order('company');
           setContacts(contactsData || []);
           
-          // Load pricing grid
-          const { data: pricingData } = await db.from('Landscaping Cost Master List').select('*');
+          // Load pricing grid (get all 8000+ items with ALL columns for accurate matching)
+          const { data: pricingData } = await db
+            .from('Landscaping Cost Master List')
+            .select('*')
+            .limit(10000);
           setPricingGrid(pricingData || []);
 
           // Load projects
