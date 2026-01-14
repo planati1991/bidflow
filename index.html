@@ -206,45 +206,147 @@
         await db.from('alternatives').delete().eq('id', itemId);
       };
 
-      // Match plant to pricing grid using fuzzy matching
+      // Parse spec string to extract size components
+      const parseSpec = (spec) => {
+        if (!spec) return {};
+        const s = spec.toUpperCase();
+        
+        // Extract gallons (e.g., "30 GAL", "3G", "1 GALLON")
+        const galMatch = s.match(/(\d+\.?\d*)\s*(?:GAL|G(?:ALLON)?)\b/);
+        const gallons = galMatch ? parseFloat(galMatch[1]) : null;
+        
+        // Extract caliper (e.g., "2\" CAL", "2 IN CAL", "2" CAL")
+        const calMatch = s.match(/(\d+\.?\d*)\s*(?:"|IN|INCH)?\s*CAL/);
+        const caliper = calMatch ? parseFloat(calMatch[1]) : null;
+        
+        // Extract height (e.g., "9'-10' HT", "10' HT", "9-10 FT")
+        const htMatch = s.match(/(\d+\.?\d*)(?:\s*-\s*\d+\.?\d*)?\s*(?:'|FT|FEET)?\s*(?:HT|HEIGHT|TALL)?/);
+        const height = htMatch ? parseFloat(htMatch[1]) : null;
+        
+        // Extract quart/pot size
+        const qtMatch = s.match(/(\d+)\s*(?:QT|QUART)/);
+        const quarts = qtMatch ? parseFloat(qtMatch[1]) : null;
+        
+        // Field grown indicator
+        const isFieldGrown = s.includes('FIELD') || s.includes('FG') || s.includes('B&B');
+        
+        return { gallons, caliper, height, quarts, isFieldGrown };
+      };
+
+      // Match plant to pricing grid using multi-factor matching
       const matchPlantToGrid = (botanical, spec) => {
         if (!pricingGrid.length) return null;
         
         const normalizeStr = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
         const searchBotanical = normalizeStr(botanical);
-        const searchSpec = normalizeStr(spec);
+        const parsedSpec = parseSpec(spec);
+        
+        // Extract genus, species, cultivar from search botanical
+        const botanicalParts = searchBotanical.split(' ').filter(p => p.length > 1);
+        const searchGenus = botanicalParts[0] || '';
+        const searchSpecies = botanicalParts[1] || '';
+        const searchCultivar = botanicalParts.slice(2).join(' ');
         
         let bestMatch = null;
         let bestScore = 0;
         
         for (const item of pricingGrid) {
-          const itemBotanical = normalizeStr(item.botanical_name || '');
-          const itemSpec = normalizeStr(item.size || item.spec || '');
-          
-          // Check botanical name match
           let score = 0;
-          if (itemBotanical && searchBotanical) {
-            if (itemBotanical === searchBotanical) score += 100;
-            else if (itemBotanical.includes(searchBotanical) || searchBotanical.includes(itemBotanical)) score += 70;
-            else {
-              const words1 = searchBotanical.split(' ');
-              const words2 = itemBotanical.split(' ');
-              const matchedWords = words1.filter(w => words2.some(w2 => w2.includes(w) || w.includes(w2)));
-              score += (matchedWords.length / Math.max(words1.length, words2.length)) * 60;
+          
+          // === NAME MATCHING (max 100 points) ===
+          const itemBotanical = normalizeStr(item.botanical_name);
+          const itemGenus = normalizeStr(item.genus);
+          const itemSpecies = normalizeStr(item.species);
+          const itemCultivar = normalizeStr(item.cultivar);
+          const itemSearchText = normalizeStr(item.search_text);
+          const itemCommon = normalizeStr(item.common_name);
+          
+          // Exact botanical match
+          if (itemBotanical && searchBotanical === itemBotanical) {
+            score += 100;
+          }
+          // Search text contains our search
+          else if (itemSearchText && itemSearchText.includes(searchBotanical)) {
+            score += 90;
+          }
+          // Genus + Species match
+          else if (searchGenus && searchSpecies && itemGenus === searchGenus && itemSpecies === searchSpecies) {
+            score += 85;
+            // Bonus for cultivar match
+            if (searchCultivar && itemCultivar && itemCultivar.includes(searchCultivar)) {
+              score += 10;
+            }
+          }
+          // Genus + partial species match
+          else if (searchGenus && itemGenus === searchGenus && itemSpecies && searchSpecies && 
+                   (itemSpecies.includes(searchSpecies) || searchSpecies.includes(itemSpecies))) {
+            score += 70;
+          }
+          // Just genus match (weak)
+          else if (searchGenus && itemGenus === searchGenus) {
+            score += 30;
+          }
+          // Botanical contains or is contained
+          else if (itemBotanical && (itemBotanical.includes(searchBotanical) || searchBotanical.includes(itemBotanical))) {
+            score += 60;
+          }
+          // Skip if no name match at all
+          else {
+            continue;
+          }
+          
+          // === SIZE MATCHING (max 50 points) ===
+          const itemGallons = parseFloat(item.container_gal) || null;
+          const itemCaliperMin = parseFloat(item.caliper_min_in) || null;
+          const itemCaliperMax = parseFloat(item.caliper_max_in) || null;
+          const itemHeightMin = parseFloat(item.height_min_ft) || null;
+          const itemHeightMax = parseFloat(item.height_max_ft) || null;
+          
+          let sizeScore = 0;
+          let sizeFactors = 0;
+          
+          // Gallon match
+          if (parsedSpec.gallons && itemGallons) {
+            sizeFactors++;
+            if (parsedSpec.gallons === itemGallons) {
+              sizeScore += 20;
+            } else if (Math.abs(parsedSpec.gallons - itemGallons) <= 5) {
+              sizeScore += 10;
             }
           }
           
-          // Spec match bonus
-          if (itemSpec && searchSpec && (itemSpec.includes(searchSpec) || searchSpec.includes(itemSpec))) {
-            score += 20;
+          // Caliper match
+          if (parsedSpec.caliper && (itemCaliperMin || itemCaliperMax)) {
+            sizeFactors++;
+            const itemCalAvg = itemCaliperMax ? (itemCaliperMin + itemCaliperMax) / 2 : itemCaliperMin;
+            if (parsedSpec.caliper >= (itemCaliperMin || 0) && parsedSpec.caliper <= (itemCaliperMax || 999)) {
+              sizeScore += 20;
+            } else if (Math.abs(parsedSpec.caliper - itemCalAvg) <= 1) {
+              sizeScore += 10;
+            }
           }
           
+          // Height match
+          if (parsedSpec.height && (itemHeightMin || itemHeightMax)) {
+            sizeFactors++;
+            if (parsedSpec.height >= (itemHeightMin || 0) && parsedSpec.height <= (itemHeightMax || 999)) {
+              sizeScore += 10;
+            }
+          }
+          
+          // Add size score (normalize if we had size factors to match)
+          if (sizeFactors > 0) {
+            score += sizeScore;
+          }
+          
+          // === TRACK BEST MATCH ===
           if (score > bestScore) {
             bestScore = score;
             bestMatch = { ...item, matchScore: score };
           }
         }
         
+        // Require minimum score of 50 (at least genus+species or good partial match)
         return bestScore >= 50 ? bestMatch : null;
       };
 
