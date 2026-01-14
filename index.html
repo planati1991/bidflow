@@ -59,7 +59,7 @@
           setContacts(contactsData || []);
           
           // Load pricing grid
-          const { data: pricingData } = await db.from('pricing_grid').select('*');
+          const { data: pricingData } = await db.from('Landscaping Cost Master List').select('*');
           setPricingGrid(pricingData || []);
 
           // Load projects
@@ -218,8 +218,8 @@
         let bestScore = 0;
         
         for (const item of pricingGrid) {
-          const itemBotanical = normalizeStr(item.botanical_name || item.botanical || '');
-          const itemSpec = normalizeStr(item.spec || item.size || '');
+          const itemBotanical = normalizeStr(item.botanical_name || '');
+          const itemSpec = normalizeStr(item.size || item.spec || '');
           
           // Check botanical name match
           let score = 0;
@@ -315,7 +315,7 @@
               spec: plant.spec || '',
               category: plant.category || 'shrub',
               qty: parseInt(plant.qty) || 0,
-              unit_cost: match ? (parseFloat(match.unit_cost || match.price || match.cost) || 0) : 0,
+              unit_cost: match ? (parseFloat(match.price) || 0) : 0,
               crew: DEFAULT_CREW,
               rate: DEFAULT_RATE,
               days: 0,
