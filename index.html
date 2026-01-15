@@ -109,10 +109,11 @@
         const materialCost = (item.unitCost || 0) * (item.qty || 0);
         const laborCost = crew * rate * HOURS_PER_DAY * (item.days || 0);
         const totalCost = materialCost + laborCost + (item.transport || 0);
-        const revenue = totalCost * 1.35;
+        const clientUnitPrice = (item.unitCost || 0) * 1.45; // 45% markup on materials
+        const revenue = clientUnitPrice * (item.qty || 0);
         const grossProfit = revenue - totalCost;
         const gpPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-        return { ...item, materialCost, laborCost, totalCost, revenue, grossProfit, gpPercent, clientUnitPrice: (item.unitCost || 0) * 1.45 };
+        return { ...item, materialCost, laborCost, totalCost, revenue, grossProfit, gpPercent, clientUnitPrice };
       };
 
       // Update functions
