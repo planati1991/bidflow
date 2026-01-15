@@ -236,12 +236,25 @@
         return { gallons, caliper, height, quarts, isFieldGrown };
       };
 
+      // Clean botanical name - remove plant codes in quotes (like 'QVTIA')
+      const cleanBotanical = (name) => {
+        if (!name) return '';
+        // Remove quoted text that looks like a code (all caps, short)
+        let cleaned = name.replace(/'[A-Z]{2,10}'/g, '').replace(/\s+/g, ' ').trim();
+        // Also remove common code patterns at end
+        cleaned = cleaned.replace(/\s+[A-Z]{2,6}$/g, '').trim();
+        return cleaned;
+      };
+
       // Match plant to pricing grid using multi-factor matching
       const matchPlantToGrid = (botanical, spec) => {
         if (!pricingGrid.length) return null;
         
         const normalizeStr = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-        const searchBotanical = normalizeStr(botanical);
+        
+        // Clean and normalize the botanical name from PDF
+        const cleanedBotanical = cleanBotanical(botanical);
+        const searchBotanical = normalizeStr(cleanedBotanical);
         const parsedSpec = parseSpec(spec);
         
         // Extract genus, species, cultivar from search botanical
@@ -268,30 +281,39 @@
           if (itemBotanical && searchBotanical === itemBotanical) {
             score += 100;
           }
-          // Search text contains our search
-          else if (itemSearchText && itemSearchText.includes(searchBotanical)) {
+          // Botanical name contains search (or vice versa) - good for cultivar variations
+          else if (itemBotanical && searchBotanical && 
+                   (itemBotanical.includes(searchBotanical) || searchBotanical.includes(itemBotanical))) {
             score += 90;
           }
-          // Genus + Species match
-          else if (searchGenus && searchSpecies && itemGenus === searchGenus && itemSpecies === searchSpecies) {
+          // Genus + Species match (most reliable for plants)
+          else if (searchGenus && searchSpecies && itemGenus && itemSpecies &&
+                   itemGenus === searchGenus && itemSpecies === searchSpecies) {
             score += 85;
             // Bonus for cultivar match
-            if (searchCultivar && itemCultivar && itemCultivar.includes(searchCultivar)) {
+            if (searchCultivar && itemCultivar && 
+                (itemCultivar.includes(searchCultivar) || searchCultivar.includes(itemCultivar))) {
               score += 10;
             }
+          }
+          // Search text contains our search terms
+          else if (itemSearchText && (itemSearchText.includes(searchBotanical) || 
+                   (searchGenus && searchSpecies && itemSearchText.includes(searchGenus) && itemSearchText.includes(searchSpecies)))) {
+            score += 80;
+          }
+          // Common name match as fallback
+          else if (itemCommon && searchBotanical && 
+                   (itemCommon.includes(searchBotanical) || searchBotanical.includes(itemCommon))) {
+            score += 60;
           }
           // Genus + partial species match
           else if (searchGenus && itemGenus === searchGenus && itemSpecies && searchSpecies && 
                    (itemSpecies.includes(searchSpecies) || searchSpecies.includes(itemSpecies))) {
             score += 70;
           }
-          // Just genus match (weak)
-          else if (searchGenus && itemGenus === searchGenus) {
-            score += 30;
-          }
-          // Botanical contains or is contained
-          else if (itemBotanical && (itemBotanical.includes(searchBotanical) || searchBotanical.includes(itemBotanical))) {
-            score += 60;
+          // Just genus match (weak - many plants share genus)
+          else if (searchGenus && itemGenus && itemGenus === searchGenus) {
+            score += 25;
           }
           // Skip if no name match at all
           else {
