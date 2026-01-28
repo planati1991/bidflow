@@ -535,6 +535,7 @@
         };
         const plantTotals = items.reduce((a, i) => ({
           qty: a.qty + (i.qty || 0),
+          materialCost: a.materialCost + i.materialCost,
           revenue: a.revenue + i.revenue,
           days: a.days + (i.days || 0),
           laborCost: a.laborCost + i.laborCost,
@@ -543,11 +544,12 @@
           totalCost: a.totalCost + i.totalCost,
           markup: a.markup + i.markup,
           grossProfit: a.grossProfit + i.grossProfit
-        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
+        }), { qty: 0, materialCost: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
 
         const miscItems = (selectedProject.miscItems || []).map(calculateItem);
         const miscTotals = miscItems.reduce((a, i) => ({
           qty: a.qty + (i.qty || 0),
+          materialCost: a.materialCost + i.materialCost,
           revenue: a.revenue + i.revenue,
           days: a.days + (i.days || 0),
           laborCost: a.laborCost + i.laborCost,
@@ -556,12 +558,13 @@
           totalCost: a.totalCost + i.totalCost,
           markup: a.markup + i.markup,
           grossProfit: a.grossProfit + i.grossProfit
-        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
+        }), { qty: 0, materialCost: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
 
         const altItems = (selectedProject.alternatives || []).map(calculateItem);
 
         const totals = {
           qty: plantTotals.qty + miscTotals.qty,
+          materialCost: plantTotals.materialCost + miscTotals.materialCost,
           revenue: plantTotals.revenue + miscTotals.revenue,
           days: plantTotals.days + miscTotals.days,
           laborCost: plantTotals.laborCost + miscTotals.laborCost,
@@ -574,7 +577,7 @@
           unmatched: items.filter(i => !i.matched).length,
           itemCount: items.length
         };
-        totals.gpPercent = totals.revenue > 0 ? (totals.grossProfit / totals.revenue) * 100 : 0;
+        totals.gpPercent = totals.markup > 0 ? (totals.grossProfit / totals.markup) * 100 : 0;
 
         return { items, categories, plantTotals, miscItems, miscTotals, altItems, totals };
       }, [selectedProject]);
@@ -756,7 +759,7 @@
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>LABOR</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>TRANS</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>EQUIP</th>
-                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>COST</th>
+                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>TOTAL COST</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>MARKUP</th>
                           <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>GP%</th>
                           <th style={{ padding: 12, width: 40 }}></th>
@@ -767,6 +770,7 @@
                       {Object.entries(proposalData.categories).map(([cat, catItems]) => {
                         if (!catItems.length) return null;
                         const catQty = catItems.reduce((s, i) => s + (i.qty || 0), 0);
+                        const catMaterial = catItems.reduce((s, i) => s + i.materialCost, 0);
                         const catRevenue = catItems.reduce((s, i) => s + i.revenue, 0);
                         const catDays = catItems.reduce((s, i) => s + (i.days || 0), 0);
                         const catLabor = catItems.reduce((s, i) => s + i.laborCost, 0);
@@ -775,7 +779,7 @@
                         const catCost = catItems.reduce((s, i) => s + i.totalCost, 0);
                         const catMarkup = catItems.reduce((s, i) => s + i.markup, 0);
                         const catProfit = catItems.reduce((s, i) => s + i.grossProfit, 0);
-                        const catGP = catRevenue > 0 ? (catProfit / catRevenue) * 100 : 0;
+                        const catGP = catMarkup > 0 ? (catProfit / catMarkup) * 100 : 0;
 
                         return (
                           <React.Fragment key={cat}>
@@ -800,7 +804,7 @@
                                 <td style={{ padding: 12, fontSize: 13, color: colors.gray }}>{isInternal ? <input type="text" value={item.spec || ''} onChange={e => updateLineItem(item.id, 'spec', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} /> : item.spec}</td>
                                 <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <input type="number" value={item.qty} onChange={e => updateLineItem(item.id, 'qty', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> : item.qty}</td>
                                 <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateLineItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : formatCurrency(item.clientUnitPrice)}</td>
-                                <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                                <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{isInternal ? formatCurrency(item.materialCost) : formatCurrency(item.markup)}</td>
                                 {isInternal && <>
                                   <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateLineItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
@@ -817,7 +821,7 @@
                               <td colSpan={2} style={{ padding: 12 }}>Subtotal {cat}</td>
                               <td style={{ padding: 12, textAlign: 'center' }}>{catQty}</td>
                               <td style={{ padding: 12, textAlign: 'right' }}>-</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catRevenue)}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? formatCurrency(catMaterial) : formatCurrency(catMarkup)}</td>
                               {isInternal && <>
                                 <td style={{ padding: 12, textAlign: 'center' }}>{catDays.toFixed(1)}</td>
                                 <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catLabor)}</td>
@@ -845,7 +849,7 @@
                             <td style={{ padding: 12, fontSize: 13, color: colors.gray }}>{item.spec}</td>
                             <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <><input type="number" value={item.qty} onChange={e => updateMiscItem(item.id, 'qty', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> <input type="text" value={item.unit} onChange={e => updateMiscItem(item.id, 'unit', e.target.value)} style={{ width: 40, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></> : `${item.qty} ${item.unit}`}</td>
                             <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateMiscItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : formatCurrency(item.clientUnitPrice)}</td>
-                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{isInternal ? formatCurrency(item.materialCost) : formatCurrency(item.markup)}</td>
                             {isInternal && <>
                               <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateMiscItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
@@ -865,7 +869,7 @@
                         <td colSpan={2} style={{ padding: 12, color: 'white' }}>TOTAL</td>
                         <td style={{ padding: 12, textAlign: 'center', color: 'white' }}>{proposalData.totals.qty}</td>
                         <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>-</td>
-                        <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.revenue)}</td>
+                        <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{isInternal ? formatCurrency(proposalData.totals.materialCost) : formatCurrency(proposalData.totals.markup)}</td>
                         {isInternal && <>
                           <td style={{ padding: 12, textAlign: 'center', color: 'white' }}>{proposalData.totals.days.toFixed(1)}</td>
                           <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.laborCost)}</td>
@@ -891,7 +895,7 @@
                             <td style={{ padding: 12, fontSize: 13, color: colors.gray, fontStyle: 'italic' }}>{item.spec}</td>
                             <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <><input type="number" value={item.qty} onChange={e => updateAltItem(item.id, 'qty', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> <input type="text" value={item.unit} onChange={e => updateAltItem(item.id, 'unit', e.target.value)} style={{ width: 40, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></> : (item.qty > 0 ? `${item.qty} ${item.unit}` : '-')}</td>
                             <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateAltItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : (item.qty > 0 ? formatCurrency(item.clientUnitPrice) : '-')}</td>
-                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{item.qty > 0 ? formatCurrency(item.revenue) : '-'}</td>
+                            <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{item.qty > 0 ? (isInternal ? formatCurrency(item.materialCost) : formatCurrency(item.markup)) : '-'}</td>
                             {isInternal && <>
                               <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateAltItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? formatCurrency(item.laborCost) : '-'}</td>
