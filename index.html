@@ -29,6 +29,8 @@
     const DEFAULT_RATE = 28;
     const DEFAULT_TRANSPORT_PERCENT = 0.055;  // 5.5% of material cost
     const DEFAULT_EQUIPMENT_PERCENT = 0.03;  // 3% of material cost
+    const DEFAULT_MARKUP_MULTIPLIER = 2.7;   // 2.7x total cost
+    const DEFAULT_MARKUP_MULTIPLIER = 2.7;   // 2.7x cost markup
 
     const BidFlowCRM = () => {
       // State
@@ -83,15 +85,15 @@
               gcContact: project.contacts?.contact_name || '',
               lineItems: (li.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
               })),
               miscItems: (mi.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
               })),
               alternatives: (alt.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
               }))
             };
           }));
@@ -110,17 +112,20 @@
         const rate = item.rate || DEFAULT_RATE;
         const materialCost = (item.unitCost || 0) * (item.qty || 0);
         const laborCost = crew * rate * HOURS_PER_DAY * (item.days || 0);
-        // Transport and equipment: use stored value if set, otherwise calculate default (5.5% transport, 3% equipment)
-        const defaultTransport = materialCost * DEFAULT_TRANSPORT_PERCENT;  // 4%
-        const defaultEquipment = materialCost * DEFAULT_EQUIPMENT_PERCENT;  // 3%
+        // Transport (5.5%) and equipment (3%): use stored value if set, otherwise calculate default
+        const defaultTransport = materialCost * DEFAULT_TRANSPORT_PERCENT;
+        const defaultEquipment = materialCost * DEFAULT_EQUIPMENT_PERCENT;
         const transportCost = (item.transport !== undefined && item.transport !== null && item.transport !== 0) ? parseFloat(item.transport) : defaultTransport;
         const equipmentCost = (item.equipment !== undefined && item.equipment !== null && item.equipment !== 0) ? parseFloat(item.equipment) : defaultEquipment;
         const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-        const clientUnitPrice = (item.unitCost || 0) * 1.45; // 45% markup on materials
-        const revenue = clientUnitPrice * (item.qty || 0);
+        // Markup: use stored value if set, otherwise calculate default (2.7x cost)
+        const defaultMarkup = totalCost * DEFAULT_MARKUP_MULTIPLIER;
+        const markup = (item.markup !== undefined && item.markup !== null && item.markup !== 0) ? parseFloat(item.markup) : defaultMarkup;
+        const revenue = markup;
         const grossProfit = revenue - totalCost;
         const gpPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-        return { ...item, materialCost, laborCost, transportCost, equipmentCost, totalCost, revenue, grossProfit, gpPercent, clientUnitPrice };
+        const clientUnitPrice = (item.qty || 0) > 0 ? (markup / item.qty) : 0;  // For client view display
+        return { ...item, materialCost, laborCost, transportCost, equipmentCost, totalCost, markup, revenue, grossProfit, gpPercent, clientUnitPrice };
       };
 
       // Update functions
@@ -535,8 +540,9 @@
           transportCost: a.transportCost + i.transportCost,
           equipmentCost: a.equipmentCost + i.equipmentCost,
           totalCost: a.totalCost + i.totalCost,
+          markup: a.markup + i.markup,
           grossProfit: a.grossProfit + i.grossProfit
-        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, grossProfit: 0 });
+        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
 
         const miscItems = (selectedProject.miscItems || []).map(calculateItem);
         const miscTotals = miscItems.reduce((a, i) => ({
@@ -547,8 +553,9 @@
           transportCost: a.transportCost + i.transportCost,
           equipmentCost: a.equipmentCost + i.equipmentCost,
           totalCost: a.totalCost + i.totalCost,
+          markup: a.markup + i.markup,
           grossProfit: a.grossProfit + i.grossProfit
-        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, grossProfit: 0 });
+        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, markup: 0, grossProfit: 0 });
 
         const altItems = (selectedProject.alternatives || []).map(calculateItem);
 
@@ -560,6 +567,7 @@
           transportCost: plantTotals.transportCost + miscTotals.transportCost,
           equipmentCost: plantTotals.equipmentCost + miscTotals.equipmentCost,
           totalCost: plantTotals.totalCost + miscTotals.totalCost,
+          markup: plantTotals.markup + miscTotals.markup,
           grossProfit: plantTotals.grossProfit + miscTotals.grossProfit,
           matched: items.filter(i => i.matched).length,
           unmatched: items.filter(i => !i.matched).length,
@@ -748,6 +756,7 @@
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>TRANS</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>EQUIP</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>COST</th>
+                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>MARKUP</th>
                           <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>GP%</th>
                           <th style={{ padding: 12, width: 40 }}></th>
                         </>}
@@ -763,13 +772,14 @@
                         const catTransport = catItems.reduce((s, i) => s + i.transportCost, 0);
                         const catEquipment = catItems.reduce((s, i) => s + i.equipmentCost, 0);
                         const catCost = catItems.reduce((s, i) => s + i.totalCost, 0);
+                        const catMarkup = catItems.reduce((s, i) => s + i.markup, 0);
                         const catProfit = catItems.reduce((s, i) => s + i.grossProfit, 0);
                         const catGP = catRevenue > 0 ? (catProfit / catRevenue) * 100 : 0;
 
                         return (
                           <React.Fragment key={cat}>
                             <tr style={{ backgroundColor: '#F1F5F9' }}>
-                              <td colSpan={isInternal ? 10 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
+                              <td colSpan={isInternal ? 12 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
                               {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}>
                                 <button onClick={() => addLineItem(cat.toLowerCase().includes('tree') ? 'tree' : cat.toLowerCase().replace('s', ''))} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button>
                               </td>}
@@ -796,6 +806,7 @@
                                   <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
+                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                                   <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                                   <td style={{ padding: 12 }}><button onClick={() => deleteLineItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                                 </>}
@@ -812,6 +823,7 @@
                                 <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catTransport)}</td>
                                 <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catEquipment)}</td>
                                 <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(catCost)}</td>
+                                <td style={{ padding: 12, textAlign: 'right', color: colors.success }}>{formatCurrency(catMarkup)}</td>
                                 <td style={{ padding: 12, textAlign: 'center', color: getGPColor(catGP) }}>{formatPercent(catGP)}</td>
                                 <td></td>
                               </>}
@@ -823,7 +835,7 @@
                       {/* Misc Items */}
                       {(proposalData.miscItems.length > 0 || isInternal) && <>
                         <tr style={{ backgroundColor: '#F1F5F9' }}>
-                          <td colSpan={isInternal ? 10 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
+                          <td colSpan={isInternal ? 11 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}><button onClick={addMiscItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
                         </tr>
                         {proposalData.miscItems.map(item => (
@@ -839,6 +851,7 @@
                               <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteMiscItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
@@ -858,6 +871,7 @@
                           <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.transportCost)}</td>
                           <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.equipmentCost)}</td>
                           <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.totalCost)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: '#4ADE80' }}>{formatCurrency(proposalData.totals.markup)}</td>
                           <td style={{ padding: 12, textAlign: 'center', color: proposalData.totals.gpPercent >= 30 ? '#4ADE80' : '#FCD34D' }}>{formatPercent(proposalData.totals.gpPercent)}</td>
                           <td></td>
                         </>}
@@ -865,9 +879,9 @@
 
                       {/* Alternatives */}
                       {(proposalData.altItems.length > 0 || isInternal) && <>
-                        <tr><td colSpan={isInternal ? 12 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
+                        <tr><td colSpan={isInternal ? 13 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
                         <tr style={{ backgroundColor: '#FEF3C7' }}>
-                          <td colSpan={isInternal ? 10 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
+                          <td colSpan={isInternal ? 11 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}><button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
                         </tr>
                         {proposalData.altItems.map(item => (
@@ -883,6 +897,7 @@
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
