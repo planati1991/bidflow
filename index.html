@@ -83,15 +83,15 @@
               gcContact: project.contacts?.contact_name || '',
               lineItems: (li.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
               })),
               miscItems: (mi.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
               })),
               alternatives: (alt.data || []).map(i => ({
                 ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0
+                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0
               }))
             };
           }));
@@ -110,9 +110,11 @@
         const rate = item.rate || DEFAULT_RATE;
         const materialCost = (item.unitCost || 0) * (item.qty || 0);
         const laborCost = crew * rate * HOURS_PER_DAY * (item.days || 0);
-        // Transport defaults to 4% of material cost if not set, equipment defaults to 3%
-        const transportCost = item.transport !== undefined && item.transport !== null ? parseFloat(item.transport) : (materialCost * DEFAULT_TRANSPORT_PERCENT);
-        const equipmentCost = item.equipment !== undefined && item.equipment !== null ? parseFloat(item.equipment) : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+        // Transport and equipment: use stored value if set, otherwise calculate default
+        const defaultTransport = materialCost * DEFAULT_TRANSPORT_PERCENT;  // 4%
+        const defaultEquipment = materialCost * DEFAULT_EQUIPMENT_PERCENT;  // 3%
+        const transportCost = (item.transport !== undefined && item.transport !== null && item.transport !== 0) ? parseFloat(item.transport) : defaultTransport;
+        const equipmentCost = (item.equipment !== undefined && item.equipment !== null && item.equipment !== 0) ? parseFloat(item.equipment) : defaultEquipment;
         const totalCost = materialCost + laborCost + transportCost + equipmentCost;
         const clientUnitPrice = (item.unitCost || 0) * 1.45; // 45% markup on materials
         const revenue = clientUnitPrice * (item.qty || 0);
@@ -137,7 +139,7 @@
       const addLineItem = async (category) => {
         const { data } = await db.from('line_items').insert({
           project_id: selectedProjectId, code: '', botanical: 'New Plant', common: '', spec: '',
-          category, qty: 0, unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+          category, qty: 0, unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0
         }).select().single();
         if (data) {
           setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
@@ -168,7 +170,7 @@
       const addMiscItem = async () => {
         const { data } = await db.from('misc_items').insert({
           project_id: selectedProjectId, name: 'New Item', spec: '', qty: 0, unit: 'EA',
-          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0
         }).select().single();
         if (data) {
           setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
@@ -199,7 +201,7 @@
       const addAltItem = async () => {
         const { data } = await db.from('alternatives').insert({
           project_id: selectedProjectId, name: 'New Alternative', spec: 'Quoted Upon Request', qty: 0, unit: 'EA',
-          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0, transport: 0
+          unit_cost: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0
         }).select().single();
         if (data) {
           setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
@@ -460,7 +462,6 @@
               crew: DEFAULT_CREW,
               rate: DEFAULT_RATE,
               days: 0,
-              transport: 0,
               matched: !!match,
               match_score: match?.matchScore || 0
             };
@@ -765,8 +766,8 @@
                                 {isInternal && <>
                                   <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateLineItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
-                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(2) || 0} onChange={e => updateLineItem(item.id, 'transport', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /></td>
-                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(2) || 0} onChange={e => updateLineItem(item.id, 'equipment', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /></td>
+                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
+                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
                                   <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                                   <td style={{ padding: 12 }}><button onClick={() => deleteLineItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
@@ -798,8 +799,8 @@
                             {isInternal && <>
                               <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateMiscItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(item.laborCost)}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(2) || 0} onChange={e => updateMiscItem(item.id, 'transport', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /></td>
-                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(2) || 0} onChange={e => updateMiscItem(item.id, 'equipment', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /></td>
+                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
+                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteMiscItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
@@ -832,8 +833,8 @@
                             {isInternal && <>
                               <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateAltItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? formatCurrency(item.laborCost) : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(2) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(2) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
