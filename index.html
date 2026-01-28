@@ -90,6 +90,30 @@
         addMissingAlternatives();
       }, [selectedProjectId, projects.length]);
 
+      // Track when a project is opened (localStorage)
+      const getLastOpened = () => JSON.parse(localStorage.getItem('bidflow_last_opened') || '{}');
+      const setLastOpened = (projectId) => {
+        const data = getLastOpened();
+        data[projectId] = Date.now();
+        localStorage.setItem('bidflow_last_opened', JSON.stringify(data));
+      };
+
+      useEffect(() => {
+        if (selectedProjectId) {
+          setLastOpened(selectedProjectId);
+        }
+      }, [selectedProjectId]);
+
+      // Sort projects by last opened
+      const sortedProjects = useMemo(() => {
+        const lastOpened = getLastOpened();
+        return [...projects].sort((a, b) => {
+          const aTime = lastOpened[a.id] || 0;
+          const bTime = lastOpened[b.id] || 0;
+          return bTime - aTime; // Most recently opened first
+        });
+      }, [projects, selectedProjectId]);
+
       const loadAllData = async () => {
         setLoading(true);
         try {
@@ -712,7 +736,7 @@
 
             <div style={{ backgroundColor: 'white', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #E5E7EB', fontWeight: 600 }}>📅 Recent Projects</div>
-              {projects.slice(0, 5).map(proj => (
+              {sortedProjects.slice(0, 5).map(proj => (
                 <div key={proj.id} onClick={() => { setSelectedProjectId(proj.id); setCurrentPage('projects'); }}
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', cursor: 'pointer', borderBottom: '1px solid #F3F4F6' }}>
                   <div>
@@ -753,7 +777,7 @@
               </tr>
             </thead>
             <tbody>
-              {projects.map(proj => (
+              {sortedProjects.map(proj => (
                 <tr key={proj.id} onClick={() => setSelectedProjectId(proj.id)} style={{ borderBottom: '1px solid #E5E7EB', cursor: 'pointer' }}>
                   <td style={{ padding: 12 }}><div style={{ fontWeight: 500 }}>{proj.name}</div><div style={{ fontSize: 12, color: colors.gray }}>{proj.location}</div></td>
                   <td style={{ padding: 12 }}>{proj.gc}</td>
