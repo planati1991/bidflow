@@ -796,6 +796,7 @@
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>TOTAL COST</th>
                           <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>MARKUP</th>
                           <th style={{ padding: 12, textAlign: 'center', fontSize: 12, color: colors.gray }}>GP%</th>
+                          <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: colors.gray }}>EST PROFIT</th>
                           <th style={{ padding: 12, width: 40 }}></th>
                         </>}
                       </tr>
@@ -818,7 +819,7 @@
                         return (
                           <React.Fragment key={cat}>
                             <tr style={{ backgroundColor: '#F1F5F9' }}>
-                              <td colSpan={isInternal ? 12 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
+                              <td colSpan={isInternal ? 13 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
                               {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}>
                                 <button onClick={() => addLineItem(cat.toLowerCase().includes('tree') ? 'tree' : cat.toLowerCase().replace('s', ''))} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button>
                               </td>}
@@ -847,6 +848,7 @@
                                   <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
                                   <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                                   <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
+                                  <td style={{ padding: 12, textAlign: 'right', color: item.grossProfit >= 0 ? colors.success : colors.danger, fontWeight: 600 }}>{formatCurrency(item.grossProfit)}</td>
                                   <td style={{ padding: 12 }}><button onClick={() => deleteLineItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                                 </>}
                               </tr>
@@ -864,6 +866,7 @@
                                 <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(catCost)}</td>
                                 <td style={{ padding: 12, textAlign: 'right', color: colors.success }}>{formatCurrency(catMarkup)}</td>
                                 <td style={{ padding: 12, textAlign: 'center', color: getGPColor(catGP) }}>{formatPercent(catGP)}</td>
+                                <td style={{ padding: 12, textAlign: 'right', color: catProfit >= 0 ? colors.success : colors.danger }}>{formatCurrency(catProfit)}</td>
                                 <td></td>
                               </>}
                             </tr>
@@ -874,7 +877,7 @@
                       {/* Misc Items */}
                       {(proposalData.miscItems.length > 0 || isInternal) && <>
                         <tr style={{ backgroundColor: '#F1F5F9' }}>
-                          <td colSpan={isInternal ? 11 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
+                          <td colSpan={isInternal ? 12 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}><button onClick={addMiscItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
                         </tr>
                         {proposalData.miscItems.map(item => (
@@ -892,6 +895,7 @@
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
                               <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
+                              <td style={{ padding: 12, textAlign: 'right', color: item.grossProfit >= 0 ? colors.success : colors.danger, fontWeight: 600 }}>{formatCurrency(item.grossProfit)}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteMiscItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
                           </tr>
@@ -912,15 +916,16 @@
                           <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.totalCost)}</td>
                           <td style={{ padding: 12, textAlign: 'right', color: '#4ADE80' }}>{formatCurrency(proposalData.totals.markup)}</td>
                           <td style={{ padding: 12, textAlign: 'center', color: proposalData.totals.gpPercent >= 30 ? '#4ADE80' : '#FCD34D' }}>{formatPercent(proposalData.totals.gpPercent)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: '#4ADE80' }}>{formatCurrency(proposalData.totals.grossProfit)}</td>
                           <td></td>
                         </>}
                       </tr>
 
                       {/* Alternatives */}
                       {(proposalData.altItems.length > 0 || isInternal) && <>
-                        <tr><td colSpan={isInternal ? 13 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
+                        <tr><td colSpan={isInternal ? 14 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
                         <tr style={{ backgroundColor: '#FEF3C7' }}>
-                          <td colSpan={isInternal ? 11 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
+                          <td colSpan={isInternal ? 13 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}><button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
                         </tr>
                         {proposalData.altItems.map(item => (
@@ -938,6 +943,7 @@
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right', color: item.grossProfit >= 0 ? colors.success : colors.danger, fontWeight: 600 }}>{item.qty > 0 ? formatCurrency(item.grossProfit) : '-'}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
                           </tr>
