@@ -49,10 +49,46 @@
       const [extracting, setExtracting] = useState(false);
       const [extractionStatus, setExtractionStatus] = useState('');
 
+      // Standard alternatives that appear on every project
+      const STANDARD_ALTERNATIVES = [
+        { name: 'Tree Removal', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1400 },
+        { name: 'Root Barrier', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 52 },
+        { name: 'Tree Relocation', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1200 },
+        { name: 'Tree Protection', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 19 },
+        { name: 'Quercus virginiana / Live Oak (Mitigation Required)', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 0 },
+        { name: 'Soil', spec: 'Quoted Upon Request', unit: 'CY', unit_cost: 135 },
+        { name: 'Sod - Argentine Bahia', spec: 'Quoted Upon Request', unit: 'Pallet', unit_cost: 199 },
+      ];
+
       // Load data on mount
       useEffect(() => {
         loadAllData();
       }, []);
+
+      // Auto-add standard alternatives when project is selected (if missing)
+      useEffect(() => {
+        const addMissingAlternatives = async () => {
+          if (!selectedProjectId) return;
+          const project = projects.find(p => p.id === selectedProjectId);
+          if (!project || !project.alternatives) return;
+          
+          // Check if standard alternatives exist (by checking for "Tree Removal")
+          const hasStandard = project.alternatives.some(a => a.name === 'Tree Removal');
+          if (hasStandard) return;
+          
+          // Add standard alternatives
+          const altInserts = STANDARD_ALTERNATIVES.map(item => ({
+            project_id: selectedProjectId, ...item, qty: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0
+          }));
+          const { data } = await db.from('alternatives').insert(altInserts).select();
+          if (data) {
+            setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
+              ...p, alternatives: [...(p.alternatives || []), ...data.map(d => ({ ...d, unitCost: d.unit_cost, rate: DEFAULT_RATE, markup: 0 }))]
+            }));
+          }
+        };
+        addMissingAlternatives();
+      }, [selectedProjectId, projects.length]);
 
       const loadAllData = async () => {
         setLoading(true);
@@ -245,7 +281,7 @@
         }).select().single();
         if (data) {
           setProjects(prev => prev.map(p => p.id !== selectedProjectId ? p : {
-            ...p, alternatives: [...p.alternatives, { ...data, unitCost: 0, rate: DEFAULT_RATE }]
+            ...p, alternatives: [...p.alternatives, { ...data, unitCost: 0, rate: DEFAULT_RATE, markup: 0 }]
           }));
         }
       };
@@ -530,10 +566,19 @@
       const createProject = async (formData) => {
         setSaving(true);
         try {
-          await db.from('projects').insert({
+          const { data: newProject } = await db.from('projects').insert({
             name: formData.name, location: formData.location, contact_id: formData.contactId || null,
             gc_contact_name: formData.gcContact, gc_email: formData.gcEmail, status: 'new', bid_date: formData.bidDate
-          });
+          }).select().single();
+          
+          // Auto-add standard alternatives to new project
+          if (newProject) {
+            const altInserts = STANDARD_ALTERNATIVES.map(item => ({
+              project_id: newProject.id, ...item, qty: 0, crew: DEFAULT_CREW, rate: DEFAULT_RATE, days: 0
+            }));
+            await db.from('alternatives').insert(altInserts);
+          }
+          
           await loadAllData();
           setShowNewProjectModal(false);
         } finally {
@@ -926,7 +971,9 @@
                         <tr><td colSpan={isInternal ? 14 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
                         <tr style={{ backgroundColor: '#FEF3C7' }}>
                           <td colSpan={isInternal ? 13 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
-                          {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}><button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
+                          {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}>
+                            <button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add Custom</button>
+                          </td>}
                         </tr>
                         {proposalData.altItems.map(item => (
                           <tr key={item.id} style={{ borderBottom: '1px solid #E5E7EB', backgroundColor: item.qty === 0 ? '#FAFAFA' : 'white' }}>
