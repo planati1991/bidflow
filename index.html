@@ -1001,18 +1001,37 @@
                         </tr>
                         {proposalData.altItems.map(item => (
                           <tr key={item.id} style={{ borderBottom: '1px solid #E5E7EB', backgroundColor: item.qty === 0 ? '#FAFAFA' : 'white' }}>
-                            <td style={{ padding: 12 }}>{isInternal ? <input type="text" value={item.name} onChange={e => updateAltItem(item.id, 'name', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} /> : <span style={{ fontWeight: 500 }}>{item.name}</span>}</td>
+                            <td style={{ padding: 12 }}>
+                              {isInternal ? (
+                                <div>
+                                  <input type="text" value={item.name} onChange={e => updateAltItem(item.id, 'name', e.target.value)} style={{ width: '100%', padding: 4, border: '1px solid #E5E7EB', borderRadius: 4 }} />
+                                  <input type="text" value={item.unit || ''} onChange={e => updateAltItem(item.id, 'unit', e.target.value)} placeholder="Unit" style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 12, color: colors.gray, marginTop: 4 }} />
+                                </div>
+                              ) : <span style={{ fontWeight: 500 }}>{item.name}</span>}
+                            </td>
                             <td style={{ padding: 12, fontSize: 13, color: colors.gray, fontStyle: 'italic' }}>{item.spec}</td>
-                            <td style={{ padding: 12, textAlign: 'center' }}>{isInternal ? <><input type="number" value={item.qty} onChange={e => updateAltItem(item.id, 'qty', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> <input type="text" value={item.unit} onChange={e => updateAltItem(item.id, 'unit', e.target.value)} style={{ width: 40, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></> : (item.qty > 0 ? `${item.qty} ${item.unit}` : '-')}</td>
-                            <td style={{ padding: 12, textAlign: 'right' }}>{isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateAltItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : (item.qty > 0 ? formatCurrency(item.clientUnitPrice) : '-')}</td>
+                            <td style={{ padding: 12, textAlign: 'center' }}>
+                              {isInternal ? <input type="number" value={item.qty} onChange={e => updateAltItem(item.id, 'qty', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /> : (item.qty > 0 ? `${item.qty} ${item.unit}` : '-')}
+                            </td>
+                            <td style={{ padding: 12, textAlign: 'right' }}>
+                              {isInternal ? <input type="number" step="0.01" value={item.unitCost} onChange={e => updateAltItem(item.id, 'unitCost', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : (item.qty > 0 ? formatCurrency(item.clientUnitPrice) : '-')}
+                            </td>
                             <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{item.qty > 0 ? (isInternal ? formatCurrency(item.materialCost) : formatCurrency(item.markup)) : '-'}</td>
                             {isInternal && <>
-                              <td style={{ padding: 12, textAlign: 'center' }}><input type="number" step="0.25" value={item.days} onChange={e => updateAltItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} /></td>
+                              <td style={{ padding: 12, textAlign: 'center' }}>
+                                <input type="number" step="0.25" value={item.days} onChange={e => updateAltItem(item.id, 'days', e.target.value)} style={{ width: 50, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'center' }} />
+                              </td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? formatCurrency(item.laborCost) : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /> : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>
+                                {item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : '-'}
+                              </td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>
+                                {item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right' }} /> : '-'}
+                              </td>
+                              <td style={{ padding: 12, textAlign: 'right', color: colors.danger, fontWeight: 500 }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>
+                                {item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markup', e.target.value)} style={{ width: 80, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', color: colors.success }} /> : '-'}
+                              </td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right', color: item.grossProfit >= 0 ? colors.success : colors.danger, fontWeight: 600 }}>{item.qty > 0 ? formatCurrency(item.grossProfit) : '-'}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
