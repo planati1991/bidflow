@@ -27,7 +27,7 @@
     const HOURS_PER_DAY = 9;
     const DEFAULT_CREW = 4;
     const DEFAULT_RATE = 28;
-    const DEFAULT_TRANSPORT_PERCENT = 0.04;  // 4% of material cost
+    const DEFAULT_TRANSPORT_PERCENT = 0.055;  // 5.5% of material cost
     const DEFAULT_EQUIPMENT_PERCENT = 0.03;  // 3% of material cost
 
     const BidFlowCRM = () => {
@@ -110,7 +110,7 @@
         const rate = item.rate || DEFAULT_RATE;
         const materialCost = (item.unitCost || 0) * (item.qty || 0);
         const laborCost = crew * rate * HOURS_PER_DAY * (item.days || 0);
-        // Transport and equipment: use stored value if set, otherwise calculate default
+        // Transport and equipment: use stored value if set, otherwise calculate default (5.5% transport, 3% equipment)
         const defaultTransport = materialCost * DEFAULT_TRANSPORT_PERCENT;  // 4%
         const defaultEquipment = materialCost * DEFAULT_EQUIPMENT_PERCENT;  // 3%
         const transportCost = (item.transport !== undefined && item.transport !== null && item.transport !== 0) ? parseFloat(item.transport) : defaultTransport;
@@ -528,16 +528,37 @@
           'GROUNDCOVER': items.filter(i => i.category === 'groundcover'),
         };
         const plantTotals = items.reduce((a, i) => ({
-          revenue: a.revenue + i.revenue, totalCost: a.totalCost + i.totalCost, grossProfit: a.grossProfit + i.grossProfit
-        }), { revenue: 0, totalCost: 0, grossProfit: 0 });
+          qty: a.qty + (i.qty || 0),
+          revenue: a.revenue + i.revenue,
+          days: a.days + (i.days || 0),
+          laborCost: a.laborCost + i.laborCost,
+          transportCost: a.transportCost + i.transportCost,
+          equipmentCost: a.equipmentCost + i.equipmentCost,
+          totalCost: a.totalCost + i.totalCost,
+          grossProfit: a.grossProfit + i.grossProfit
+        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, grossProfit: 0 });
 
         const miscItems = (selectedProject.miscItems || []).map(calculateItem);
-        const miscTotals = miscItems.reduce((a, i) => ({ revenue: a.revenue + i.revenue, totalCost: a.totalCost + i.totalCost, grossProfit: a.grossProfit + i.grossProfit }), { revenue: 0, totalCost: 0, grossProfit: 0 });
+        const miscTotals = miscItems.reduce((a, i) => ({
+          qty: a.qty + (i.qty || 0),
+          revenue: a.revenue + i.revenue,
+          days: a.days + (i.days || 0),
+          laborCost: a.laborCost + i.laborCost,
+          transportCost: a.transportCost + i.transportCost,
+          equipmentCost: a.equipmentCost + i.equipmentCost,
+          totalCost: a.totalCost + i.totalCost,
+          grossProfit: a.grossProfit + i.grossProfit
+        }), { qty: 0, revenue: 0, days: 0, laborCost: 0, transportCost: 0, equipmentCost: 0, totalCost: 0, grossProfit: 0 });
 
         const altItems = (selectedProject.alternatives || []).map(calculateItem);
 
         const totals = {
+          qty: plantTotals.qty + miscTotals.qty,
           revenue: plantTotals.revenue + miscTotals.revenue,
+          days: plantTotals.days + miscTotals.days,
+          laborCost: plantTotals.laborCost + miscTotals.laborCost,
+          transportCost: plantTotals.transportCost + miscTotals.transportCost,
+          equipmentCost: plantTotals.equipmentCost + miscTotals.equipmentCost,
           totalCost: plantTotals.totalCost + miscTotals.totalCost,
           grossProfit: plantTotals.grossProfit + miscTotals.grossProfit,
           matched: items.filter(i => i.matched).length,
@@ -735,7 +756,13 @@
                     <tbody>
                       {Object.entries(proposalData.categories).map(([cat, catItems]) => {
                         if (!catItems.length) return null;
+                        const catQty = catItems.reduce((s, i) => s + (i.qty || 0), 0);
                         const catRevenue = catItems.reduce((s, i) => s + i.revenue, 0);
+                        const catDays = catItems.reduce((s, i) => s + (i.days || 0), 0);
+                        const catLabor = catItems.reduce((s, i) => s + i.laborCost, 0);
+                        const catTransport = catItems.reduce((s, i) => s + i.transportCost, 0);
+                        const catEquipment = catItems.reduce((s, i) => s + i.equipmentCost, 0);
+                        const catCost = catItems.reduce((s, i) => s + i.totalCost, 0);
                         const catProfit = catItems.reduce((s, i) => s + i.grossProfit, 0);
                         const catGP = catRevenue > 0 ? (catProfit / catRevenue) * 100 : 0;
 
@@ -775,9 +802,19 @@
                               </tr>
                             ))}
                             <tr style={{ backgroundColor: '#F8FAFC', fontWeight: 600 }}>
-                              <td colSpan={4} style={{ padding: 12 }}>Subtotal {cat}</td>
+                              <td colSpan={2} style={{ padding: 12 }}>Subtotal {cat}</td>
+                              <td style={{ padding: 12, textAlign: 'center' }}>{catQty}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>-</td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catRevenue)}</td>
-                              {isInternal && <><td colSpan={5}></td><td style={{ padding: 12, textAlign: 'center', color: getGPColor(catGP) }}>{formatPercent(catGP)}</td><td></td></>}
+                              {isInternal && <>
+                                <td style={{ padding: 12, textAlign: 'center' }}>{catDays.toFixed(1)}</td>
+                                <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catLabor)}</td>
+                                <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catTransport)}</td>
+                                <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(catEquipment)}</td>
+                                <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(catCost)}</td>
+                                <td style={{ padding: 12, textAlign: 'center', color: getGPColor(catGP) }}>{formatPercent(catGP)}</td>
+                                <td></td>
+                              </>}
                             </tr>
                           </React.Fragment>
                         );
@@ -811,9 +848,19 @@
 
                       {/* Grand Total */}
                       <tr style={{ backgroundColor: '#1E293B', color: 'white', fontWeight: 700 }}>
-                        <td colSpan={4} style={{ padding: 12, color: 'white' }}>TOTAL</td>
+                        <td colSpan={2} style={{ padding: 12, color: 'white' }}>TOTAL</td>
+                        <td style={{ padding: 12, textAlign: 'center', color: 'white' }}>{proposalData.totals.qty}</td>
+                        <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>-</td>
                         <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.revenue)}</td>
-                        {isInternal && <><td colSpan={5}></td><td style={{ padding: 12, textAlign: 'center', color: proposalData.totals.gpPercent >= 30 ? '#4ADE80' : '#FCD34D' }}>{formatPercent(proposalData.totals.gpPercent)}</td><td></td></>}
+                        {isInternal && <>
+                          <td style={{ padding: 12, textAlign: 'center', color: 'white' }}>{proposalData.totals.days.toFixed(1)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.laborCost)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.transportCost)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.equipmentCost)}</td>
+                          <td style={{ padding: 12, textAlign: 'right', color: 'white' }}>{formatCurrency(proposalData.totals.totalCost)}</td>
+                          <td style={{ padding: 12, textAlign: 'center', color: proposalData.totals.gpPercent >= 30 ? '#4ADE80' : '#FCD34D' }}>{formatPercent(proposalData.totals.gpPercent)}</td>
+                          <td></td>
+                        </>}
                       </tr>
 
                       {/* Alternatives */}
