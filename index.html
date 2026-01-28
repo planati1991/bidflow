@@ -82,18 +82,53 @@
               ...project,
               gc: project.contacts?.company || project.gc_contact_name || '',
               gcContact: project.contacts?.contact_name || '',
-              lineItems: (li.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markupOverride: parseFloat(i.markup) || 0
-              })),
-              miscItems: (mi.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markupOverride: parseFloat(i.markup) || 0
-              })),
-              alternatives: (alt.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markupOverride: parseFloat(i.markup) || 0
-              }))
+              lineItems: (li.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const transport = parseFloat(i.transport) || 0;
+                const equipment = parseFloat(i.equipment) || 0;
+                const dbMarkup = parseFloat(i.markup) || 0;
+                // Calculate costs to determine initial markup if not set
+                const materialCost = unitCost * qty;
+                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
+                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                // Use DB markup if set, otherwise calculate initial markup
+                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
+              }),
+              miscItems: (mi.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const transport = parseFloat(i.transport) || 0;
+                const equipment = parseFloat(i.equipment) || 0;
+                const dbMarkup = parseFloat(i.markup) || 0;
+                const materialCost = unitCost * qty;
+                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
+                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
+              }),
+              alternatives: (alt.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const transport = parseFloat(i.transport) || 0;
+                const equipment = parseFloat(i.equipment) || 0;
+                const dbMarkup = parseFloat(i.markup) || 0;
+                const materialCost = unitCost * qty;
+                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
+                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
+              })
             };
           }));
           setProjects(projectsWithItems);
@@ -118,10 +153,9 @@
         const equipmentCost = (item.equipment && item.equipment > 0) ? parseFloat(item.equipment) : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
         // Step 4: Total Cost = Material + Labor + Transport + Equipment
         const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-        // Step 5: Markup = Total Cost × 2.7 (unless user has overridden)
-        const calculatedMarkup = totalCost * DEFAULT_MARKUP_MULTIPLIER;
-        const markup = (item.markupOverride && item.markupOverride > 0) ? item.markupOverride : calculatedMarkup;
-        // Step 6: GP% = (Markup - Cost) / Markup
+        // Step 5: Markup is FIXED (set on load) - only recalculate if 0
+        const markup = (item.markup && item.markup > 0) ? item.markup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+        // Step 6: GP% = (Markup - Cost) / Markup - changes when costs change!
         const revenue = markup;
         const grossProfit = revenue - totalCost;
         const gpPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
@@ -131,7 +165,7 @@
 
       // Update functions
       const updateLineItem = async (itemId, field, value) => {
-        const dbFieldMap = { unitCost: 'unit_cost', matchScore: 'match_score', sortOrder: 'sort_order', markupOverride: 'markup' };
+        const dbFieldMap = { unitCost: 'unit_cost', matchScore: 'match_score', sortOrder: 'sort_order' };
         const dbField = dbFieldMap[field] || field;
         const isText = ['botanical', 'common', 'spec', 'code', 'category'].includes(field);
         const val = isText ? value : (parseFloat(value) || 0);
@@ -162,7 +196,7 @@
       };
 
       const updateMiscItem = async (itemId, field, value) => {
-        const dbFieldMap = { unitCost: 'unit_cost', markupOverride: 'markup' };
+        const dbFieldMap = { unitCost: 'unit_cost' };
         const dbField = dbFieldMap[field] || field;
         const isText = ['name', 'spec', 'unit'].includes(field);
         const val = isText ? value : (parseFloat(value) || 0);
@@ -193,7 +227,7 @@
       };
 
       const updateAltItem = async (itemId, field, value) => {
-        const dbFieldMap = { unitCost: 'unit_cost', markupOverride: 'markup' };
+        const dbFieldMap = { unitCost: 'unit_cost' };
         const dbField = dbFieldMap[field] || field;
         const isText = ['name', 'spec', 'unit'].includes(field);
         const val = isText ? value : (parseFloat(value) || 0);
@@ -811,7 +845,7 @@
                                   <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                                   <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
-                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'markupOverride', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
+                                  <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateLineItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                                   <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                                   <td style={{ padding: 12 }}><button onClick={() => deleteLineItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                                 </>}
@@ -856,7 +890,7 @@
                               <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                               <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /></td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{formatCurrency(item.totalCost)}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'markupOverride', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
+                              <td style={{ padding: 12, textAlign: 'right' }}><input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateMiscItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /></td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{formatPercent(item.gpPercent)}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteMiscItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
@@ -902,7 +936,7 @@
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.transportCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'transport', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.equipmentCost?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'equipment', e.target.value)} style={{ width: 60, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12 }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'right', color: colors.danger }}>{item.qty > 0 ? formatCurrency(item.totalCost) : '-'}</td>
-                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markupOverride', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /> : '-'}</td>
+                              <td style={{ padding: 12, textAlign: 'right' }}>{item.qty > 0 ? <input type="number" step="1" value={item.markup?.toFixed(0) || 0} onChange={e => updateAltItem(item.id, 'markup', e.target.value)} style={{ width: 70, padding: 4, border: '1px solid #E5E7EB', borderRadius: 4, textAlign: 'right', fontSize: 12, color: colors.success }} /> : '-'}</td>
                               <td style={{ padding: 12, textAlign: 'center', color: getGPColor(item.gpPercent), fontWeight: 600 }}>{item.qty > 0 ? formatPercent(item.gpPercent) : '-'}</td>
                               <td style={{ padding: 12 }}><button onClick={() => deleteAltItem(item.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 16 }}>×</button></td>
                             </>}
