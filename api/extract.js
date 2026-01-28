@@ -1,3 +1,13 @@
+// Vercel config for larger PDFs
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20mb'
+    }
+  },
+  maxDuration: 60 // 60 seconds timeout for large PDFs
+};
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
