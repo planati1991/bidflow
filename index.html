@@ -82,18 +82,49 @@
               ...project,
               gc: project.contacts?.company || project.gc_contact_name || '',
               gcContact: project.contacts?.contact_name || '',
-              lineItems: (li.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
-              })),
-              miscItems: (mi.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
-              })),
-              alternatives: (alt.data || []).map(i => ({
-                ...i, unitCost: parseFloat(i.unit_cost) || 0, rate: parseFloat(i.rate) || DEFAULT_RATE,
-                days: parseFloat(i.days) || 0, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup: parseFloat(i.markup) || 0
-              }))
+              lineItems: (li.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const crew = i.crew || DEFAULT_CREW;
+                const rate = parseFloat(i.rate) || DEFAULT_RATE;
+                const materialCost = unitCost * qty;
+                const laborCost = crew * rate * HOURS_PER_DAY * days;
+                const transportCost = parseFloat(i.transport) || (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = parseFloat(i.equipment) || (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                // Initialize markup to 2.7x if not set - this becomes the fixed sell price
+                const markup = parseFloat(i.markup) || (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate, days, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup };
+              }),
+              miscItems: (mi.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const crew = i.crew || DEFAULT_CREW;
+                const rate = parseFloat(i.rate) || DEFAULT_RATE;
+                const materialCost = unitCost * qty;
+                const laborCost = crew * rate * HOURS_PER_DAY * days;
+                const transportCost = parseFloat(i.transport) || (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = parseFloat(i.equipment) || (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                const markup = parseFloat(i.markup) || (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate, days, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup };
+              }),
+              alternatives: (alt.data || []).map(i => {
+                const unitCost = parseFloat(i.unit_cost) || 0;
+                const qty = parseInt(i.qty) || 0;
+                const days = parseFloat(i.days) || 0;
+                const crew = i.crew || DEFAULT_CREW;
+                const rate = parseFloat(i.rate) || DEFAULT_RATE;
+                const materialCost = unitCost * qty;
+                const laborCost = crew * rate * HOURS_PER_DAY * days;
+                const transportCost = parseFloat(i.transport) || (materialCost * DEFAULT_TRANSPORT_PERCENT);
+                const equipmentCost = parseFloat(i.equipment) || (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+                const markup = parseFloat(i.markup) || (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+                return { ...i, unitCost, rate, days, transport: parseFloat(i.transport) || 0, equipment: parseFloat(i.equipment) || 0, markup };
+              })
             };
           }));
           setProjects(projectsWithItems);
@@ -114,16 +145,15 @@
         // Transport (5.5%) and equipment (3%): use stored value if set, otherwise calculate default
         const defaultTransport = materialCost * DEFAULT_TRANSPORT_PERCENT;
         const defaultEquipment = materialCost * DEFAULT_EQUIPMENT_PERCENT;
-        const transportCost = (item.transport !== undefined && item.transport !== null && item.transport !== 0) ? parseFloat(item.transport) : defaultTransport;
-        const equipmentCost = (item.equipment !== undefined && item.equipment !== null && item.equipment !== 0) ? parseFloat(item.equipment) : defaultEquipment;
+        const transportCost = (item.transport && item.transport > 0) ? parseFloat(item.transport) : defaultTransport;
+        const equipmentCost = (item.equipment && item.equipment > 0) ? parseFloat(item.equipment) : defaultEquipment;
         const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-        // Markup: use stored value if set, otherwise calculate default (2.7x cost)
-        const defaultMarkup = totalCost * DEFAULT_MARKUP_MULTIPLIER;
-        const markup = (item.markup !== undefined && item.markup !== null && item.markup !== 0) ? parseFloat(item.markup) : defaultMarkup;
+        // Markup: use stored value, OR calculate 2.7x if markup is 0 but we have costs
+        const markup = (item.markup && item.markup > 0) ? item.markup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
         const revenue = markup;
         const grossProfit = revenue - totalCost;
         const gpPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-        const clientUnitPrice = (item.qty || 0) > 0 ? (markup / item.qty) : 0;  // For client view display
+        const clientUnitPrice = (item.qty || 0) > 0 ? (markup / item.qty) : 0;
         return { ...item, materialCost, laborCost, transportCost, equipmentCost, totalCost, markup, revenue, grossProfit, gpPercent, clientUnitPrice };
       };
 
