@@ -1,15 +1,12 @@
-// Vercel config for larger PDFs
+// Vercel config - disable body parser to accept raw binary PDF
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '20mb'
-    }
+    bodyParser: false
   },
-  maxDuration: 60 // 60 seconds timeout for large PDFs
+  maxDuration: 60
 };
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,17 +20,25 @@ export default async function handler(req, res) {
   }
 
   const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-  
+
   if (!CLAUDE_API_KEY) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
   try {
-    const { pdfBase64 } = req.body;
-    
-    if (!pdfBase64) {
+    // Read raw binary from request body
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+
+    if (buffer.length === 0) {
       return res.status(400).json({ error: 'No PDF data provided' });
     }
+
+    // Convert to base64 server-side (avoids 33% bloat over the wire)
+    const pdfBase64 = buffer.toString('base64');
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -92,8 +97,14 @@ category must be one of: "tree", "palm", "shrub", "grass", "groundcover"`
     }
 
     const data = await response.json();
+
+    // Check for truncation
+    if (data.stop_reason === 'max_tokens') {
+      return res.status(200).json({ ...data, warning: 'Response was truncated — some plants may be missing. Try a smaller PDF or split into pages.' });
+    }
+
     return res.status(200).json(data);
-    
+
   } catch (error) {
     console.error('Extraction error:', error);
     return res.status(500).json({ error: error.message });
