@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
+        max_tokens: 16384,
         messages: [{
           role: 'user',
           content: [
@@ -54,16 +54,32 @@ export default async function handler(req, res) {
             },
             {
               type: 'text',
-              text: `Extract all plants from this landscape/planting schedule. Return ONLY a JSON array with no other text. Each plant should have:
-- code: the plant code/symbol (e.g. "QV", "SAP")
-- botanical: botanical/scientific name (e.g. "Quercus virginiana")
-- common: common name (e.g. "Live Oak")
-- spec: size specification (e.g. "4" Cal, 14' HT" or "3 Gal")
-- qty: quantity as a number
-- category: one of "tree", "palm", "shrub", "grass", "groundcover"
+              text: `You are an expert at reading landscape architectural plant schedules from construction plans and PDFs.
 
-Example format:
-[{"code":"QV","botanical":"Quercus virginiana","common":"Live Oak","spec":"4\\" Cal, 14' HT","qty":5,"category":"tree"}]`
+Extract ALL plants from this document. Carefully examine every page — plant schedules may span multiple pages and can appear as tables, lists, or within plan notes.
+
+Common plant schedule formats:
+- Tables with columns: Symbol/Code, Botanical Name, Common Name, Size/Spec, Quantity
+- Sometimes columns are: Key, Plant, Description, Container/Cal, Spacing, Qty
+- The table may have a "Remarks" or "Notes" column — ignore that column
+- Quantities may appear as totals at the end of a row or in a dedicated "Qty" column
+- Size specs may include: caliper (e.g. 4" Cal), height (e.g. 14' HT), gallon size (e.g. 30 Gal), spread, spacing
+- Some schedules split trees, shrubs, groundcover, and grasses into separate sections
+
+Rules:
+- Include EVERY plant row, even if some fields are missing
+- For botanical names, use proper Latin format (genus species 'Cultivar') — do NOT include size info in the botanical field
+- Combine all size/specification info into the "spec" field (caliper, height, gallon, spread, container, B&B, etc.)
+- If a plant appears in multiple rows with different sizes, include each as a separate entry
+- Qty must be a number. If it says "As Shown" or is blank, use 0
+- Categorize based on the plant type or the section header it appears under
+
+Return ONLY a valid JSON array. No markdown, no code fences, no explanation. Just the raw JSON array.
+
+Each object must have exactly these fields:
+{"code":"QV","botanical":"Quercus virginiana","common":"Live Oak","spec":"4\\" Cal, 14' HT, 8' Spr","qty":5,"category":"tree"}
+
+category must be one of: "tree", "palm", "shrub", "grass", "groundcover"`
             }
           ]
         }]

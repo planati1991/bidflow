@@ -31,6 +31,34 @@
     const DEFAULT_EQUIPMENT_PERCENT = 0.03;  // 3% of material cost
     const DEFAULT_MARKUP_MULTIPLIER = 2.7;   // 2.7x total cost
 
+    // Standard alternatives that appear on every project
+    const STANDARD_ALTERNATIVES = [
+      { name: 'Tree Removal', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1400 },
+      { name: 'Root Barrier', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 52 },
+      { name: 'Tree Relocation', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1200 },
+      { name: 'Tree Protection', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 19 },
+      { name: 'Quercus virginiana / Live Oak (Mitigation Required)', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 0 },
+      { name: 'Soil', spec: 'Quoted Upon Request', unit: 'CY', unit_cost: 135 },
+      { name: 'Sod - Argentine Bahia', spec: 'Quoted Upon Request', unit: 'Pallet', unit_cost: 199 },
+    ];
+
+    // Parse a DB row into an item with calculated costs
+    const parseItemFromDB = (i) => {
+      const unitCost = parseFloat(i.unit_cost) || 0;
+      const qty = parseInt(i.qty) || 0;
+      const days = parseFloat(i.days) || 0;
+      const transport = parseFloat(i.transport) || 0;
+      const equipment = parseFloat(i.equipment) || 0;
+      const dbMarkup = parseFloat(i.markup) || 0;
+      const materialCost = unitCost * qty;
+      const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
+      const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
+      const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
+      const totalCost = materialCost + laborCost + transportCost + equipmentCost;
+      const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
+      return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
+    };
+
     const BidFlowCRM = () => {
       // State
       const [currentPage, setCurrentPage] = useState('dashboard');
@@ -48,17 +76,6 @@
       const [pricingGrid, setPricingGrid] = useState([]);
       const [extracting, setExtracting] = useState(false);
       const [extractionStatus, setExtractionStatus] = useState('');
-
-      // Standard alternatives that appear on every project
-      const STANDARD_ALTERNATIVES = [
-        { name: 'Tree Removal', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1400 },
-        { name: 'Root Barrier', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 52 },
-        { name: 'Tree Relocation', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 1200 },
-        { name: 'Tree Protection', spec: 'Quoted Upon Request', unit: 'LF', unit_cost: 19 },
-        { name: 'Quercus virginiana / Live Oak (Mitigation Required)', spec: 'Quoted Upon Request', unit: 'U', unit_cost: 0 },
-        { name: 'Soil', spec: 'Quoted Upon Request', unit: 'CY', unit_cost: 135 },
-        { name: 'Sod - Argentine Bahia', spec: 'Quoted Upon Request', unit: 'Pallet', unit_cost: 199 },
-      ];
 
       // Load data on mount
       useEffect(() => {
@@ -142,53 +159,9 @@
               ...project,
               gc: project.contacts?.company || project.gc_contact_name || '',
               gcContact: project.contacts?.contact_name || '',
-              lineItems: (li.data || []).map(i => {
-                const unitCost = parseFloat(i.unit_cost) || 0;
-                const qty = parseInt(i.qty) || 0;
-                const days = parseFloat(i.days) || 0;
-                const transport = parseFloat(i.transport) || 0;
-                const equipment = parseFloat(i.equipment) || 0;
-                const dbMarkup = parseFloat(i.markup) || 0;
-                // Calculate costs to determine initial markup if not set
-                const materialCost = unitCost * qty;
-                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
-                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
-                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
-                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-                // Use DB markup if set, otherwise calculate initial markup
-                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
-                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
-              }),
-              miscItems: (mi.data || []).map(i => {
-                const unitCost = parseFloat(i.unit_cost) || 0;
-                const qty = parseInt(i.qty) || 0;
-                const days = parseFloat(i.days) || 0;
-                const transport = parseFloat(i.transport) || 0;
-                const equipment = parseFloat(i.equipment) || 0;
-                const dbMarkup = parseFloat(i.markup) || 0;
-                const materialCost = unitCost * qty;
-                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
-                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
-                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
-                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
-                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
-              }),
-              alternatives: (alt.data || []).map(i => {
-                const unitCost = parseFloat(i.unit_cost) || 0;
-                const qty = parseInt(i.qty) || 0;
-                const days = parseFloat(i.days) || 0;
-                const transport = parseFloat(i.transport) || 0;
-                const equipment = parseFloat(i.equipment) || 0;
-                const dbMarkup = parseFloat(i.markup) || 0;
-                const materialCost = unitCost * qty;
-                const laborCost = (i.crew || DEFAULT_CREW) * (parseFloat(i.rate) || DEFAULT_RATE) * HOURS_PER_DAY * days;
-                const transportCost = transport > 0 ? transport : (materialCost * DEFAULT_TRANSPORT_PERCENT);
-                const equipmentCost = equipment > 0 ? equipment : (materialCost * DEFAULT_EQUIPMENT_PERCENT);
-                const totalCost = materialCost + laborCost + transportCost + equipmentCost;
-                const markup = dbMarkup > 0 ? dbMarkup : (totalCost * DEFAULT_MARKUP_MULTIPLIER);
-                return { ...i, unitCost, rate: parseFloat(i.rate) || DEFAULT_RATE, days, transport, equipment, markup };
-              })
+              lineItems: (li.data || []).map(parseItemFromDB),
+              miscItems: (mi.data || []).map(parseItemFromDB),
+              alternatives: (alt.data || []).map(parseItemFromDB)
             };
           }));
           setProjects(projectsWithItems);
@@ -531,16 +504,22 @@
           // Parse JSON from response
           let plants;
           try {
-            // Try to find JSON array in response
-            const jsonMatch = text.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-              plants = JSON.parse(jsonMatch[0]);
+            // Strip markdown code fences if present
+            let cleaned = text.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+            // Find the JSON array
+            const startIdx = cleaned.indexOf('[');
+            const endIdx = cleaned.lastIndexOf(']');
+            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+              plants = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
             } else {
-              throw new Error('No JSON array found');
+              throw new Error('No JSON array found in response');
+            }
+            if (!Array.isArray(plants) || plants.length === 0) {
+              throw new Error('Extracted empty or invalid plant list');
             }
           } catch (e) {
             console.error('Parse error:', text);
-            throw new Error('Failed to parse plant data from response');
+            throw new Error(`Failed to parse plant data: ${e.message}`);
           }
           
           setExtractionStatus(`Found ${plants.length} plants. Matching to pricing grid...`);
@@ -888,7 +867,7 @@
                         return (
                           <React.Fragment key={cat}>
                             <tr style={{ backgroundColor: '#F1F5F9' }}>
-                              <td colSpan={isInternal ? 13 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
+                              <td colSpan={isInternal ? 12 : 4} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>{cat}</td>
                               {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}>
                                 <button onClick={() => addLineItem(cat.toLowerCase().includes('tree') ? 'tree' : cat.toLowerCase().replace('s', ''))} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button>
                               </td>}
@@ -946,7 +925,7 @@
                       {/* Misc Items */}
                       {(proposalData.miscItems.length > 0 || isInternal) && <>
                         <tr style={{ backgroundColor: '#F1F5F9' }}>
-                          <td colSpan={isInternal ? 12 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
+                          <td colSpan={isInternal ? 12 : 4} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>MISCELLANEOUS</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right' }}><button onClick={addMiscItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add</button></td>}
                         </tr>
                         {proposalData.miscItems.map(item => (
@@ -993,8 +972,9 @@
                       {/* Alternatives */}
                       {(proposalData.altItems.length > 0 || isInternal) && <>
                         <tr><td colSpan={isInternal ? 14 : 5} style={{ height: 16, backgroundColor: '#F8FAFC' }}></td></tr>
+
                         <tr style={{ backgroundColor: '#FEF3C7' }}>
-                          <td colSpan={isInternal ? 13 : 5} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
+                          <td colSpan={isInternal ? 12 : 4} style={{ padding: '10px 12px', fontWeight: 600, fontSize: 13 }}>ADD ALTERNATIVES</td>
                           {isInternal && <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#FEF3C7' }}>
                             <button onClick={addAltItem} style={{ background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', fontSize: 13 }}>+ Add Custom</button>
                           </td>}
